@@ -68,9 +68,10 @@ export async function loadAutoCompact(): Promise<void> {
   try {
     const r = await api.getAutoCompact();
     if (r && r.success && r.data) {
-      const enEl = document.getElementById('tk-auto-enabled') as any;
+      const mode = r.data.mode === 'compact' || r.data.mode === 'new-chat' ? r.data.mode : 'off';
+      const modeEls = document.querySelectorAll('input[name="tk-context-mode"]') as any;
+      modeEls.forEach((el: any) => { el.checked = (el.value === mode); });
       const thEl = document.getElementById('tk-auto-threshold') as any;
-      if (enEl) enEl.checked = r.data.enabled === true;
       if (thEl) thEl.value = r.data.threshold;
     }
   } catch (_) { /* ignore */ }
@@ -84,14 +85,14 @@ if (tkCompactBtn) tkCompactBtn.addEventListener('click', async () => {
 const tkAutoSaveBtn = document.getElementById('tk-auto-save') as any;
 if (tkAutoSaveBtn) tkAutoSaveBtn.addEventListener('click', async () => {
   if (!api.saveAutoCompact) return;
-  const enEl = document.getElementById('tk-auto-enabled') as any;
+  const modeEl = document.querySelector('input[name="tk-context-mode"]:checked') as any;
+  const mode = modeEl ? modeEl.value : 'off';
   const thEl = document.getElementById('tk-auto-threshold') as any;
-  const enabled = !!(enEl && enEl.checked);
   const threshold = parseFloat(thEl ? thEl.value : '80');
   if (!Number.isFinite(threshold) || threshold <= 0) { await ckAlert('阈值需为正数（万）'); return; }
   tkAutoSaveBtn.disabled = true;
   try {
-    const r = await api.saveAutoCompact({ enabled, threshold });
+    const r = await api.saveAutoCompact({ mode, threshold });
     if (r && r.success) {
       tkAutoSaveBtn.textContent = '已保存';
       setTimeout(() => { tkAutoSaveBtn.textContent = '保存设置'; }, 1200);

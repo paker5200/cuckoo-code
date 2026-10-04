@@ -18,7 +18,7 @@ const require = createRequire(import.meta.url);
 const { app, BrowserWindow, WebContentsView, Menu, dialog, screen, nativeTheme, ipcMain: ipcMainForProfile } = require('electron');
 
 // ========== 持久化会话配置 ==========
-const SESSION_DIR = process.env.CUCKOO_SESSION_DIR || 'cuckoo-ai-pro-session';
+const SESSION_DIR = process.env.CUCKOO_SESSION_DIR || 'cuckoo-code-flash-session';
 const USER_DATA_DIR = path.join(app.getPath('appData'), SESSION_DIR);
 // app.setPath('userData', ...) 要求目标目录必须已存在，否则会抛错导致启动闪退。
 // 用户首次运行或手动删除该目录时，此处负责兜底创建。
@@ -121,7 +121,7 @@ function createWindow(profile: any) {
     minHeight: 240,
     ...(defaultBounds.x !== undefined ? { x: defaultBounds.x + cascadeOffset, y: (defaultBounds.y || 0) + cascadeOffset } : {}),
     icon: resolveAsset('assets/icon.png'),
-    title: 'Cuckoo Code Pro - ' + (provider ? provider.name : '未选择平台') + ' - ' + profileData.name,
+    title: 'Cuckoo Code Flash - ' + (provider ? provider.name : '未选择平台') + ' - ' + profileData.name,
     webPreferences: {
       // 壳页面 preload（只负责地址栏导航，与 AI 页面 preload 分离）
       preload: path.join(import.meta.dirname, 'shell-preload.js'),
@@ -568,7 +568,7 @@ function setupAppMenu() {
           }
         },
         { type: 'separator' },
-        { role: 'about', label: '关于 Cuckoo Code' }
+        { role: 'about', label: '关于 Cuckoo Code Flash' }
       ]
     }
   ];
@@ -798,7 +798,7 @@ ipcMainForProfile.handle('update-window-name', async (event: any, { displayName 
   if (!ctx) return { success: false, error: '窗口上下文不存在' };
   const updated = profileManager.updateProfileName(ctx.profileId, displayName);
   if (updated && ctx.win && !ctx.win.isDestroyed()) {
-    ctx.win.setTitle('Cuckoo Code Pro - ' + updated.name);
+    ctx.win.setTitle('Cuckoo Code Flash - ' + updated.name);
   }
   return { success: !!updated, name: updated ? updated.name : null };
 });

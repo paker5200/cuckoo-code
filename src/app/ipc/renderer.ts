@@ -20,7 +20,7 @@ function registerRendererIpc(): void {
       }
 
       if (win && !win.isDestroyed()) {
-        let windowName = 'Cuckoo Code';
+        let windowName = 'Cuckoo Code Flash';
         if (ctx && ctx.profileId) {
           const profile = profileManager.getProfileById(ctx.profileId);
           if (profile && profile.name) windowName = profile.name;

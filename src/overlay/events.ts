@@ -292,65 +292,134 @@ function refreshTokenForCurrentSession(): void {
   updateConversationTokenDisplay();
 }
 
-// ========== 自动压缩上下文 ==========
-// 配置：是否启用 + 阈值（单位：万 token）
-let autoCompactEnabled = false;
+// ========== 上下文策略（三选一：off / compact / new-chat）==========
+// off       = 关闭
+// compact   = 自动压缩（保留摘要，原功能）
+// new-chat  = 自动开启新对话（不压缩，靠「项目进度」文件夹承接上下文）
+type ContextMode = 'off' | 'compact' | 'new-chat';
+let contextMode: ContextMode = 'off';
 let autoCompactThresholdWan = 80;
-// 防止压缩过程中重复触发
+// 防止触发过程中重复触发
 let autoCompactTriggering = false;
 
-/** 从 localStorage 读取自动压缩配置并同步到 UI */
+/** 读 localStorage 中的上下文策略（含旧配置迁移） */
+function readContextMode(): ContextMode {
+  let mode: string | null = null;
+  try { mode = localStorage.getItem('cuckoo-context-mode'); } catch (_) {}
+  if (mode === 'off' || mode === 'compact' || mode === 'new-chat') return mode;
+  // 旧配置迁移：cuckoo-auto-compact-enabled === '1' → compact
+  try {
+    if (localStorage.getItem('cuckoo-auto-compact-enabled') === '1') return 'compact';
+  } catch (_) {}
+  return 'off';
+}
+
+/** 从 localStorage 读取上下文策略配置并同步到 UI */
 function loadAutoCompactConfig() {
   try {
-    const en = localStorage.getItem('cuckoo-auto-compact-enabled');
     const th = localStorage.getItem('cuckoo-auto-compact-threshold');
-    autoCompactEnabled = en === '1';
+    contextMode = readContextMode();
     // 同样避免 "parseFloat() || 80"（0 会被丢弃）
     if (th !== null) { const v = parseFloat(th); if (Number.isFinite(v) && v > 0) autoCompactThresholdWan = v; }
   } catch (_) {}
-  const enEl = document.getElementById('cuckoo-auto-compact-enabled');
+  const modeEls = document.querySelectorAll('input[name="tk-context-mode"]') as any;
+  modeEls.forEach((el: any) => { el.checked = (el.value === contextMode); });
   const thEl = document.getElementById('cuckoo-auto-compact-threshold');
-  if (enEl) (enEl as any).checked = autoCompactEnabled;
   if (thEl) (thEl as any).value = autoCompactThresholdWan;
 }
 
-/** 保存自动压缩配置 */
+/** 读取 UI 中选中的上下文策略 */
+function getSelectedContextMode(): ContextMode {
+  const el = document.querySelector('input[name="tk-context-mode"]:checked') as any;
+  const v = el ? el.value : 'off';
+  return (v === 'compact' || v === 'new-chat') ? v : 'off';
+}
+
+/** 保存上下文策略配置 */
 function saveAutoCompactConfig() {
-  const enEl = document.getElementById('cuckoo-auto-compact-enabled');
+  const mode = getSelectedContextMode();
   const thEl = document.getElementById('cuckoo-auto-compact-threshold');
-  const enabled = !!(enEl && (enEl as any).checked);
   let th = thEl ? parseFloat((thEl as any).value) : 80;
   if (!Number.isFinite(th) || th <= 0) {
     showToast('阈值需为正数（万）', 3000);
     return;
   }
-  autoCompactEnabled = enabled;
+  contextMode = mode;
   autoCompactThresholdWan = th;
   try {
-    localStorage.setItem('cuckoo-auto-compact-enabled', enabled ? '1' : '0');
+    localStorage.setItem('cuckoo-context-mode', mode);
     localStorage.setItem('cuckoo-auto-compact-threshold', String(th));
+    // 兼容旧键：compact 时置 '1'，否则置 '0'
+    localStorage.setItem('cuckoo-auto-compact-enabled', mode === 'compact' ? '1' : '0');
   } catch (_) {}
-  showToast('自动压缩设置已保存：' + (enabled ? '开启，阈值 ' + th + ' 万' : '关闭'), 2500);
+  const modeLabel = mode === 'compact' ? '自动压缩' : (mode === 'new-chat' ? '自动开启新对话' : '关闭');
+  showToast('上下文策略已保存：' + modeLabel + '，阈值 ' + th + ' 万', 2500);
 }
 
 /**
- * 检查是否触发自动压缩
+ * 检查是否触发上下文策略（压缩 / 开新对话）
  * 数据源：state.serverTokenUsage.accumulatedTokens
  */
 function checkAutoCompact() {
-  if (!autoCompactEnabled || autoCompactTriggering) return;
+  const mode = readContextMode();
+  contextMode = mode; // 同步内存变量
+  if (mode === 'off' || autoCompactTriggering) return;
   const server = serverTokenUsage;
   if (!server || typeof server.accumulatedTokens !== 'number') return;
-  const thresholdTokens = autoCompactThresholdWan * 10000;
+  let thresholdWan = autoCompactThresholdWan;
+  try {
+    const th = localStorage.getItem('cuckoo-auto-compact-threshold');
+    if (th !== null) { const v = parseFloat(th); if (Number.isFinite(v) && v > 0) thresholdWan = v; }
+  } catch (_) {}
+  const thresholdTokens = thresholdWan * 10000;
   if (server.accumulatedTokens < thresholdTokens) return;
   // 触发
   autoCompactTriggering = true;
-  console.log('[Cuckoo Compact] 自动触发：当前 ' + server.accumulatedTokens + ' >= 阈值 ' + thresholdTokens);
-  showToast('Token 超阈值（' + autoCompactThresholdWan + '万），自动压缩中...', 4000);
-  runCompaction(state.currentProjectDir || undefined).finally(() => {
-    // 压缩会跳转页面；若未跳转（失败），重置标志允许下次重试
-    autoCompactTriggering = false;
-  });
+  if (mode === 'new-chat') {
+    console.log('[Cuckoo NewChat] 自动触发：当前 ' + server.accumulatedTokens + ' >= 阈值 ' + thresholdTokens);
+    showToast('Token 超阈值（' + autoCompactThresholdWan + '万），自动开启新对话...', 4000);
+    triggerNewChatWithProgress().finally(() => {
+      // 成功会跳转页面（变量随页面重载重置）；失败则重置标志允许下次重试
+      autoCompactTriggering = false;
+    });
+  } else {
+    console.log('[Cuckoo Compact] 自动触发：当前 ' + server.accumulatedTokens + ' >= 阈值 ' + thresholdTokens);
+    showToast('Token 超阈值（' + autoCompactThresholdWan + '万），自动压缩中...', 4000);
+    runCompaction(state.currentProjectDir || undefined).finally(() => {
+      // 压缩会跳转页面；若未跳转（失败），重置标志允许下次重试
+      autoCompactTriggering = false;
+    });
+  }
+}
+
+/**
+ * 触发「自动开启新对话」：调主进程 IPC，创建/校验项目进度文件夹并开新对话。
+ * 若未选项目目录，则提示并放弃。
+ */
+async function triggerNewChatWithProgress(): Promise<void> {
+  const projectDir = state.currentProjectDir;
+  if (!projectDir) {
+    showToast('未选择项目目录，无法自动开启新对话（请先初始化项目）', 5000);
+    return;
+  }
+  const api = (window as any).electronAPI;
+  if (!api || typeof api.newConversationWithProgress !== 'function') {
+    showToast('当前环境不支持自动开启新对话', 4000);
+    return;
+  }
+  try {
+    const r = await api.newConversationWithProgress(projectDir);
+    if (r && r.success) {
+      const tip = r.created
+        ? '项目位置已有：项目进度 文件夹（本次新建：' + ((r.createdFiles || []).join('、') || '目录结构') + '）'
+        : '项目位置已有：项目进度 文件夹';
+      showToast(tip, 5000);
+    } else {
+      showToast('自动开启新对话失败：' + ((r && r.error) || '未知错误'), 5000);
+    }
+  } catch (err: any) {
+    showToast('自动开启新对话失败：' + (err.message || err), 5000);
+  }
 }
 
 /**
@@ -578,33 +647,38 @@ function bindEvents() {
   });
 }
 
-// ========== 自动压缩（供 IPC：壳页面 Token 页调用） ==========
-/** 读自动压缩配置（不解 DOM） */
-function getAutoCompactConfig(): { enabled: boolean; threshold: number } {
-  let enabled = false;
+// ========== 上下文策略（供 IPC：壳页面 Token 页调用） ==========
+/** 读上下文策略配置（不解 DOM）。返回 { mode, threshold }，mode: 'off'|'compact'|'new-chat' */
+function getAutoCompactConfig(): { mode: ContextMode; threshold: number } {
   let threshold = 80;
   try {
-    enabled = localStorage.getItem('cuckoo-auto-compact-enabled') === '1';
     const th = localStorage.getItem('cuckoo-auto-compact-threshold');
     if (th !== null) { const v = parseFloat(th); if (Number.isFinite(v) && v > 0) threshold = v; }
   } catch (_) {}
-  return { enabled, threshold };
+  return { mode: readContextMode(), threshold };
 }
 
-/** 保存自动压缩配置（更新内存 + localStorage） */
+/** 保存上下文策略配置（更新内存 + localStorage） */
 function applyAutoCompactConfig(data: any): { success: boolean; error?: string; data?: any } {
-  const enabled = !!(data && data.enabled);
+  // 兼容旧字段 enabled：enabled=true → compact
+  let mode: ContextMode = 'off';
+  if (data && (data.mode === 'off' || data.mode === 'compact' || data.mode === 'new-chat')) {
+    mode = data.mode;
+  } else if (data && data.enabled) {
+    mode = 'compact';
+  }
   let th = data ? parseFloat(data.threshold) : 80;
   if (!Number.isFinite(th) || th <= 0) return { success: false, error: '阈值需为正数（万）' };
-  autoCompactEnabled = enabled;
+  contextMode = mode;
   autoCompactThresholdWan = th;
   try {
-    localStorage.setItem('cuckoo-auto-compact-enabled', enabled ? '1' : '0');
+    localStorage.setItem('cuckoo-context-mode', mode);
     localStorage.setItem('cuckoo-auto-compact-threshold', String(th));
+    localStorage.setItem('cuckoo-auto-compact-enabled', mode === 'compact' ? '1' : '0');
   } catch (err: any) {
     return { success: false, error: err.message };
   }
-  return { success: true, data: { enabled, threshold: th } };
+  return { success: true, data: { mode, threshold: th } };
 }
 
 /** 手动触发压缩（调用压缩流程） */

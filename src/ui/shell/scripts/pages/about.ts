@@ -31,5 +31,5 @@ if (aboutCheckBtn) aboutCheckBtn.addEventListener('click', async () => {
   aboutCheckBtn.disabled = false;
 });
 document.getElementById('about-github')?.addEventListener('click', () => {
-  if (api.openExternal) api.openExternal('https://github.com/wangyongpeng90/cuckoo-code');
+  if (api.openExternal) api.openExternal('https://github.com/paker5200/cuckoo-code');
 });

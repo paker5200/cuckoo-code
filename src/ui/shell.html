@@ -703,6 +703,11 @@
     box-shadow: var(--ck-shadow-sm);
   }
   .ck-auto-head { display: flex; align-items: center; justify-content: space-between; }
+  /* 上下文策略：三选一单选 */
+  .ck-radio-group { display: flex; flex-direction: column; gap: 9px; }
+  .ck-radio-item { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ck-text-2); cursor: pointer; }
+  .ck-radio-item input[type="radio"] { cursor: pointer; flex-shrink: 0; accent-color: var(--ck-primary); }
+  .ck-radio-item:hover { color: var(--ck-text); }
   .ck-auto-body { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ck-text-2); }
   .ck-auto-body input[type="number"] {
     width: 56px; background: var(--ck-surface); border: 1px solid transparent;
@@ -950,10 +955,20 @@
 
               <div class="ck-auto-block">
                 <div class="ck-auto-head">
-                  <span class="ck-stat-key">自动压缩</span>
-                  <label class="ck-switch">
-                    <input type="checkbox" id="tk-auto-enabled" />
-                    <span class="ck-switch-track"></span>
+                  <span class="ck-stat-key">上下文策略</span>
+                </div>
+                <div class="ck-radio-group">
+                  <label class="ck-radio-item">
+                    <input type="radio" name="tk-context-mode" value="off" />
+                    <span>关闭</span>
+                  </label>
+                  <label class="ck-radio-item">
+                    <input type="radio" name="tk-context-mode" value="compact" />
+                    <span>自动压缩（保留摘要）</span>
+                  </label>
+                  <label class="ck-radio-item">
+                    <input type="radio" name="tk-context-mode" value="new-chat" />
+                    <span>自动开启新对话（不压缩，用「项目进度」承接）</span>
                   </label>
                 </div>
                 <div class="ck-auto-body">
@@ -1243,7 +1258,7 @@
               <div class="ck-about-group">
                 <div class="ck-about-group-title">开源地址</div>
                 <p class="ck-about-tip">本系统为开源项目，欢迎点 Star 支持。</p>
-                <a class="ck-about-link" id="about-github">github.com/wangyongpeng90/cuckoo-code</a>
+                <a class="ck-about-link" id="about-github">github.com/paker5200/cuckoo-code</a>
               </div>
 
               <div class="ck-about-group">
@@ -2305,9 +2320,12 @@
     try {
       const r = await api.getAutoCompact();
       if (r && r.success && r.data) {
-        const enEl = document.getElementById("tk-auto-enabled");
+        const mode = r.data.mode === "compact" || r.data.mode === "new-chat" ? r.data.mode : "off";
+        const modeEls = document.querySelectorAll('input[name="tk-context-mode"]');
+        modeEls.forEach((el) => {
+          el.checked = el.value === mode;
+        });
         const thEl = document.getElementById("tk-auto-threshold");
-        if (enEl) enEl.checked = r.data.enabled === true;
         if (thEl) thEl.value = r.data.threshold;
       }
     } catch (_) {
@@ -2325,9 +2343,9 @@
   var tkAutoSaveBtn = document.getElementById("tk-auto-save");
   if (tkAutoSaveBtn) tkAutoSaveBtn.addEventListener("click", async () => {
     if (!api.saveAutoCompact) return;
-    const enEl = document.getElementById("tk-auto-enabled");
+    const modeEl = document.querySelector('input[name="tk-context-mode"]:checked');
+    const mode = modeEl ? modeEl.value : "off";
     const thEl = document.getElementById("tk-auto-threshold");
-    const enabled = !!(enEl && enEl.checked);
     const threshold = parseFloat(thEl ? thEl.value : "80");
     if (!Number.isFinite(threshold) || threshold <= 0) {
       await ckAlert("\u9608\u503C\u9700\u4E3A\u6B63\u6570\uFF08\u4E07\uFF09");
@@ -2335,7 +2353,7 @@
     }
     tkAutoSaveBtn.disabled = true;
     try {
-      const r = await api.saveAutoCompact({ enabled, threshold });
+      const r = await api.saveAutoCompact({ mode, threshold });
       if (r && r.success) {
         tkAutoSaveBtn.textContent = "\u5DF2\u4FDD\u5B58";
         setTimeout(() => {
@@ -2382,7 +2400,7 @@
     aboutCheckBtn.disabled = false;
   });
   document.getElementById("about-github")?.addEventListener("click", () => {
-    if (api.openExternal) api.openExternal("https://github.com/wangyongpeng90/cuckoo-code");
+    if (api.openExternal) api.openExternal("https://github.com/paker5200/cuckoo-code");
   });
 
   // src/ui/shell/scripts/pages/feishu.ts

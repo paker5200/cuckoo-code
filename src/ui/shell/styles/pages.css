@@ -57,6 +57,11 @@
     box-shadow: var(--ck-shadow-sm);
   }
   .ck-auto-head { display: flex; align-items: center; justify-content: space-between; }
+  /* 上下文策略：三选一单选 */
+  .ck-radio-group { display: flex; flex-direction: column; gap: 9px; }
+  .ck-radio-item { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ck-text-2); cursor: pointer; }
+  .ck-radio-item input[type="radio"] { cursor: pointer; flex-shrink: 0; accent-color: var(--ck-primary); }
+  .ck-radio-item:hover { color: var(--ck-text); }
   .ck-auto-body { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ck-text-2); }
   .ck-auto-body input[type="number"] {
     width: 56px; background: var(--ck-surface); border: 1px solid transparent;

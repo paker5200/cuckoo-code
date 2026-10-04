@@ -33,10 +33,20 @@
 
               <div class="ck-auto-block">
                 <div class="ck-auto-head">
-                  <span class="ck-stat-key">自动压缩</span>
-                  <label class="ck-switch">
-                    <input type="checkbox" id="tk-auto-enabled" />
-                    <span class="ck-switch-track"></span>
+                  <span class="ck-stat-key">上下文策略</span>
+                </div>
+                <div class="ck-radio-group">
+                  <label class="ck-radio-item">
+                    <input type="radio" name="tk-context-mode" value="off" />
+                    <span>关闭</span>
+                  </label>
+                  <label class="ck-radio-item">
+                    <input type="radio" name="tk-context-mode" value="compact" />
+                    <span>自动压缩（保留摘要）</span>
+                  </label>
+                  <label class="ck-radio-item">
+                    <input type="radio" name="tk-context-mode" value="new-chat" />
+                    <span>自动开启新对话（不压缩，用「项目进度」承接）</span>
                   </label>
                 </div>
                 <div class="ck-auto-body">

@@ -1,0 +1,197 @@
+# Cuckoo Code Flash — 定制改动说明（合并上游必读）
+
+> 本文件记录本项目相对上游 (wangyongpeng90/cuckoo-code) 的**全部定制改动**。
+> 当上游更新、需要把定制合并到新版时，**先读本文件**，按"合并指南"操作。
+
+---
+
+## 一、定制版基本信息
+
+| 项 | 值 |
+|---|---|
+| 定制版名称 | Cuckoo Code Flash |
+| 基于上游版本 | 0.8.7 (commit a18a21f) |
+| 定制基线 tag | flash-v0.8.7 |
+| 定制开发分支 | flash-dev |
+| 上游仓库 | https://github.com/wangyongpeng90/cuckoo-code |
+| 本 fork 仓库 | https://github.com/paker5200/cuckoo-code |
+| 定制目的 | ①新增"自动开启新对话"上下文策略 ②改名为独立应用，与原版并存 |
+
+---
+
+## 二、定制功能清单
+
+### 功能 1：新增「自动开启新对话」上下文策略（核心新功能）
+
+原来只有"自动压缩"一个开关。现改为**三选一**：
+- 关闭
+- 自动压缩（保留摘要，原功能）
+- 自动开启新对话（不压缩，靠「项目进度」文件夹承接上下文）
+
+触发条件与原来相同：超过 N 万 tokens。
+
+触发"自动开启新对话"时：
+1. 检查/创建 项目目录下的「项目进度」文件夹（缺文件则按模板补齐，已存在不覆盖）
+2. 提示"项目位置已有：项目进度 文件夹"
+3. 开新对话
+4. 自动初始化项目，系统提示词末尾追加"先读 AI_CONTEXT.md，再读 PROGRESS.md / TODO.md"的指令
+
+「项目进度」文件夹结构：
+    项目进度/
+    ├── AI_CONTEXT.md   入口指令
+    ├── PROGRESS.md     已完成（打勾+日期）
+    ├── TODO.md         待办
+    ├── DECISIONS.md    决策记录
+    └── 交接笔记/       每次对话结束的交接笔记
+
+### 功能 2：改名 Cuckoo Code Flash（与原版并存）
+
+- 安装目录、用户数据目录、单实例锁全部独立
+- 可与原版 Cuckoo Code 同时安装、同时运行
+- 自动更新源改为本 fork (paker5200/cuckoo-code)
+
+---
+
+## 三、逐文件改动清单
+
+（改动的文件如果上游也改了，就是冲突高发区，合并时重点看这里）
+
+### 🟢 新增文件（上游不会有，永不冲突，合并时保留即可）
+
+- **src/session/project-progress.ts**
+  新增模块。负责创建「项目进度」文件夹 + 默认模板，导出 ensureProgressFolder() 和 buildProgressInstruction()。
+
+### 🟡 功能相关改动（上游若改了同一文件，需小心合并）
+
+- **src/app/ipc/session.ts**
+  - 顶部新增 import：ensureProgressFolder, buildProgressInstruction from '../../session/project-progress.js'
+  - 新增 IPC handler：'new-conversation-with-progress'
+  - 定制点：新增的 handler 块
+
+- **src/bridge/api.ts**
+  - electronAPI 新增方法 newConversationWithProgress（调 IPC 'new-conversation-with-progress'）
+  - 定制点：updateProjectDir 之后新增的几行
+
+- **src/overlay/events.ts**（改动最大，144 行，冲突高发）
+  - autoCompactEnabled(bool) → contextMode('off'|'compact'|'new-chat')
+  - 新增 readContextMode()（含旧配置迁移）
+  - loadAutoCompactConfig / saveAutoCompactConfig 改为读写 mode
+  - checkAutoCompact() 按 mode 分支：compact 走原 runCompaction，new-chat 走 triggerNewChatWithProgress
+  - 新增 triggerNewChatWithProgress()
+  - getAutoCompactConfig / applyAutoCompactConfig 返回/接收 mode（兼容旧 enabled 字段）
+  - 定制点：所有含 contextMode / new-chat / 项目进度 的逻辑
+
+- **src/ui/shell/partials/pages/token.html**
+  - "自动压缩"开关（ck-switch）→ "上下文策略"三选一单选（ck-radio-group）
+
+- **src/ui/shell/scripts/pages/token.ts**
+  - loadAutoCompact / 保存逻辑改为读写 mode（name="tk-context-mode" 的 radio）
+
+- **src/ui/shell/styles/pages.css**
+  - 新增 .ck-radio-group / .ck-radio-item 样式
+
+### 🔵 改名相关改动（机械性，冲突时按"保留 Flash 名"原则处理）
+
+- **package.json**
+  - name: cuckoo-code → cuckoo-code-flash
+  - build.appId: com.cuckoo.cuckoo-code → com.cuckoo.cuckoo-code-flash
+  - build.productName: Cuckoo-Code → Cuckoo Code Flash
+  - build.publish.owner: wangyongpeng90 → paker5200
+  - artifactName（win/mac/nsis）: cuckoo-code-* → cuckoo-code-flash-*
+  - ⚠️ version 字段每次上游更新必冲突，合并时**取上游的新版本号**（如 0.8.8），不要保留 0.8.7
+
+- **src/app/entry.ts**
+  - SESSION_DIR: 'cuckoo-ai-pro-session' → 'cuckoo-code-flash-session'（★关键，决定数据隔离+单实例锁）
+  - 窗口标题 'Cuckoo Code Pro' → 'Cuckoo Code Flash'（2 处）
+  - 关于菜单 label 'Cuckoo Code' → 'Cuckoo Code Flash'
+
+- **src/app/ipc/renderer.ts**
+  - 通知窗口名 'Cuckoo Code' → 'Cuckoo Code Flash'
+
+- **src/ui/shell/partials/pages/about.html**
+  - github 链接 wangyongpeng90 → paker5200
+
+- **src/ui/shell/scripts/pages/about.ts**
+  - github 链接 wangyongpeng90 → paker5200
+
+### ⚫ 生成物（不要手动合并！）
+
+- **src/ui/shell.html**
+  - 这是由 node scripts/build-shell.mjs 从 src/ui/shell/ 源码生成的。
+  - 合并时：**随便选一边，然后重新跑 node scripts/build-shell.mjs 覆盖即可。**
+  - 永远以 src/ui/shell/ 下的源码为准。
+
+---
+
+## 四、合并上游的完整流程
+
+前提：已配置 upstream 远程（见第六节）。
+
+    # 1. 切到 master（master 只跟上游，不含定制）
+    git checkout master
+    git fetch upstream
+    git merge upstream/master
+    # 若提示 fast-forward，直接过；master 现在 = 上游最新
+
+    # 2. 切到定制分支
+    git checkout flash-dev
+
+    # 3. 把上游新版合进定制分支
+    git merge master
+    #   出现冲突时：对照本文件第三节，逐文件处理
+
+    # 4. 【关键】源码合并完后，重新生成 shell.html
+    node scripts/build-shell.mjs
+
+    # 5. 验证
+    npm run typecheck
+    npx vitest run
+
+    # 6. 提交并推送
+    git add -A
+    git commit -m "merge: 合并上游 X.X.X 到 flash-dev"
+    git push origin flash-dev
+
+---
+
+## 五、冲突处理原则（重要）
+
+遇到冲突时，按下面的优先级判断：
+
+1. **功能保留**：你的"自动开启新对话"和"项目进度"相关改动（events.ts、project-progress.ts、session.ts 的 handler、token 页）一律保留。
+2. **改名保留**：Flash 的名字、appId、SESSION_DIR、publish 指向 paker5200，一律保留。
+3. **上游新功能**：上游新增的功能代码，尽量接受。
+4. **version**：取上游的新版本号，不要卡在 0.8.7。
+5. **shell.html**：不对抗，合并后重新生成。
+
+不确定时，把冲突片段和本文件一起给 AI，让 AI 判断"这段是你的定制还是上游的更新"。
+
+---
+
+## 六、upstream 远程配置（若还没配）
+
+    git remote add upstream https://github.com/wangyongpeng90/cuckoo-code.git
+    git fetch upstream
+
+验证：
+
+    git remote -v
+    # 应看到 origin(你的fork) 和 upstream(上游) 两个
+
+---
+
+## 七、分支策略
+
+- **master**：只用来同步上游，保持"干净"（不含定制）。定期 git fetch upstream && git merge upstream/master。
+- **flash-dev**：所有定制改动都在这里开发。日常工作和发布都用这个分支。
+- **tag flash-v0.8.7**：定制基线，方便日后定位"从哪个版本开始定制"。
+
+---
+
+## 八、打包命令（生成 Cuckoo Code Flash 安装包）
+
+    npm run build:win:nsis:local
+
+产物在 dist/ 下：cuckoo-code-flash-win-v{版本号}.exe
+
+---
