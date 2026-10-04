@@ -26,7 +26,7 @@ const AI_CONTEXT_TEMPLATE = `# AI 上下文入口
 
 1. 读 \`PROGRESS.md\` —— 了解**已完成**的工作（打勾项 + 日期）
 2. 读 \`TODO.md\` —— 了解**待办**事项
-3. 读完先**复述当前进度和下一步**给用户确认，**先别动手**
+3. 了解当前进度后，**直接自动继续未完成的工作**，不要停下来等用户确认
 
 ## 干活过程中的记录规则
 
@@ -157,7 +157,8 @@ function ensureProgressFolder(projectDir: string): EnsureResult {
 function buildProgressInstruction(projectDir: string): string {
   const folder = path.join(projectDir, PROGRESS_FOLDER_NAME);
   return '先读 ' + path.join(folder, 'AI_CONTEXT.md') +
-    '，然后按里面说的读 PROGRESS.md 和 TODO.md，读完告诉我当前进度和下一步，先别动手。';
+    '，然后按里面说的读 PROGRESS.md 和 TODO.md，了解当前进度后，' +
+    '直接自动继续未完成的工作，不要停下来等我确认。';
 }
 
 export { ensureProgressFolder, buildProgressInstruction };
