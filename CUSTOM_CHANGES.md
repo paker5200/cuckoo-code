@@ -34,15 +34,22 @@
 1. 检查/创建 项目目录下的「项目进度」文件夹（缺文件则按模板补齐，已存在不覆盖）
 2. 提示"项目位置已有：项目进度 文件夹"
 3. 开新对话
-4. 自动初始化项目，系统提示词末尾追加"先读 AI_CONTEXT.md，再读 PROGRESS.md / TODO.md"的指令
+4. 自动初始化项目，系统提示词末尾追加：先读 AI_CONTEXT.md，再依次读 GOAL.md（总目标）、PROGRESS.md（已完成）、TODO.md（待办）；读完判断总目标完成多少、是否已全部完成；未完成则直接继续干活，全部完成则停下明确告知
 
 「项目进度」文件夹结构：
     项目进度/
     ├── AI_CONTEXT.md   入口指令
+    ├── GOAL.md         任务总目标（原始需求/交付物/验收标准/整体进度）
     ├── PROGRESS.md     已完成（打勾+日期）
     ├── TODO.md         待办
     ├── DECISIONS.md    决策记录
     └── 交接笔记/       每次对话结束的交接笔记
+
+补充说明：
+- GOAL.md 用于解决"多次开新对话后，AI 忘了最初任务是什么"的问题，
+  让 AI 每次都能先搞清楚总目标，并据此判断任务是否全部完成。
+- 触发后的行为是"自动继续干活"，不等待用户确认；
+  只有判定"全部完成"时才停下告知用户。
 
 ### 功能 2：改名 Cuckoo Code Flash（与原版并存）
 
@@ -59,7 +66,9 @@
 ### 🟢 新增文件（上游不会有，永不冲突，合并时保留即可）
 
 - **src/session/project-progress.ts**
-  新增模块。负责创建「项目进度」文件夹 + 默认模板，导出 ensureProgressFolder() 和 buildProgressInstruction()。
+  新增模块。负责创建「项目进度」文件夹 + 默认模板（AI_CONTEXT.md / GOAL.md / PROGRESS.md / TODO.md / DECISIONS.md / 交接笔记/），
+  导出 ensureProgressFolder() 和 buildProgressInstruction()。
+  注意：GOAL.md（任务总目标）是为了让 AI 在多次开新对话后仍记得最初任务、并能判断是否全部完成。
 
 ### 🟡 功能相关改动（上游若改了同一文件，需小心合并）
 
