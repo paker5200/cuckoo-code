@@ -301,6 +301,20 @@ let autoCompactThresholdWan = 80;
 // 防止触发过程中重复触发
 let autoCompactTriggering = false;
 
+// ========== 「项目进度维护引导」待注入 ==========
+// 保存 new-chat 时只建文件夹、不发消息（此时用户可能还没发布任务）。
+// 设置本标志；等用户发消息、AI 完成一轮回复后，注入一次维护引导再清除。
+const PENDING_PROGRESS_KEY = 'cuckoo-pending-progress-guide';
+function readPendingProgressGuide(): string | null {
+  try { return localStorage.getItem(PENDING_PROGRESS_KEY); } catch (_) { return null; }
+}
+function setPendingProgressGuide(folder: string): void {
+  try { localStorage.setItem(PENDING_PROGRESS_KEY, folder || ''); } catch (_) {}
+}
+function clearPendingProgressGuide(): void {
+  try { localStorage.removeItem(PENDING_PROGRESS_KEY); } catch (_) {}
+}
+
 /** 读 localStorage 中的上下文策略（含旧配置迁移） */
 function readContextMode(): ContextMode {
   let mode: string | null = null;
@@ -422,6 +436,34 @@ async function triggerNewChatWithProgress(): Promise<void> {
 }
 
 /**
+ * 若存在"待注入的进度维护引导"，则注入一次并清除。
+ * 触发时机：用户发消息、AI 完成一轮回复后（onTaskIdle）。
+ * 此时用户已发布任务，引导 AI 把总目标写进 GOAL.md 才有意义。
+ */
+async function maybeInjectProgressGuide(): Promise<void> {
+  const folder = readPendingProgressGuide();
+  if (!folder) return;
+  clearPendingProgressGuide(); // 先清除，避免重复注入
+  try {
+    const msg =
+      '【项目进度文件夹已启用】' + String.fromCharCode(10) +
+      '项目目录下已有「项目进度」文件夹：' + folder + String.fromCharCode(10) +
+      '请从本次对话的上下文里判断总目标，并开始维护以下文件（记录规则详见 ' + folder + '\\AI_CONTEXT.md）：' + String.fromCharCode(10) +
+      '- GOAL.md：本次任务的总目标（原始需求/交付物/验收标准/整体进度）' + String.fromCharCode(10) +
+      '- PROGRESS.md：已完成事项（打勾+日期）' + String.fromCharCode(10) +
+      '- TODO.md：待办' + String.fromCharCode(10) +
+      '- DECISIONS.md：重要决策及原因' + String.fromCharCode(10) +
+      '注意：GOAL.md 记的是**最开始那个完整目标**，不要用后续的零散选择/确认去覆盖它；' +
+      '方案选择、技术决策请记到 DECISIONS.md。' + String.fromCharCode(10) +
+      '若本对话目前还没有明确任务，就先别写，等任务明确了再记录。';
+    await sendToChat(msg, '系统提示词');
+    console.log('[Cuckoo Code] 已注入进度维护引导: ' + folder);
+  } catch (err: any) {
+    console.error('[Cuckoo Code] 注入进度维护引导失败:', err && err.message);
+  }
+}
+
+/**
  * 启动对话 token 显示 + 自动压缩检查（事件驱动）
  * 仅在收到成功回复事件时刷新 token 显示并检查自动压缩，
  * 避免失败/停止时因旧 token 值反复触发压缩。
@@ -437,8 +479,10 @@ function startTokenCounter() {
     }
     updateConversationTokenDisplay();
   });
-  // 自动压缩：只在"任务空闲"（工具循环结束）时检查——避免与工具结果抢输入框
-  hooks.onTaskIdle?.(() => checkAutoCompact());
+  // 任务空闲（工具循环结束）：先注入"待处理的进度引导"，再检查自动压缩
+  hooks.onTaskIdle?.(() => {
+    maybeInjectProgressGuide().finally(() => checkAutoCompact());
+  });
   updateConversationTokenDisplay();
 }
 
@@ -682,7 +726,9 @@ async function applyAutoCompactConfig(data: any): Promise<{ success: boolean; er
     return { success: false, error: err.message };
   }
 
-  // ===== new-chat：立即建「项目进度」文件夹 + 注入当前对话引导 =====
+  // ===== new-chat：立即建「项目进度」文件夹 + 设置待注入引导 =====
+  // 若本次不是 new-chat，清除可能残留的待注入标志（避免切走后仍在别的会话注入）
+  if (mode !== 'new-chat') clearPendingProgressGuide();
   let progressFolder: string | null = null;
   let progressCreated = false;
   let progressHint = '';
@@ -707,25 +753,11 @@ async function applyAutoCompactConfig(data: any): Promise<{ success: boolean; er
       } else {
         progressHint = '当前环境不支持创建「项目进度」文件夹';
       }
-      // 注入当前对话：让 AI 从现在开始维护进度文件
+      // 只建文件夹，不立即发消息（此时用户可能还没发布任务）。
+      // 记下"待注入引导"，等用户发消息、AI 完成一轮回复后再注入（见 maybeInjectProgressGuide）。
       if (progressFolder) {
-        try {
-          const folder = progressFolder;
-          const msg =
-            '【项目进度文件夹已启用】' + String.fromCharCode(10) +
-            '已在项目目录下创建「项目进度」文件夹：' + folder + String.fromCharCode(10) +
-            '从现在起，请把本次任务的总目标、已完成、待办同步记录到该文件夹下：' + String.fromCharCode(10) +
-            '- GOAL.md：本次任务的总目标（原始需求/交付物/验收标准/整体进度）' + String.fromCharCode(10) +
-            '- PROGRESS.md：已完成事项（打勾+日期）' + String.fromCharCode(10) +
-            '- TODO.md：待办' + String.fromCharCode(10) +
-            '- DECISIONS.md：重要决策及原因' + String.fromCharCode(10) +
-            '记录规则详见 ' + folder + '\\AI_CONTEXT.md。' + String.fromCharCode(10) +
-            '请先读一遍 AI_CONTEXT.md，然后把当前任务的总目标写入 GOAL.md，之后每完成一项就更新 PROGRESS.md/TODO.md，' +
-            '这样将来"自动开启新对话"时，新对话能通过这些文件承接上下文、继续未完成的工作。';
-          await sendToChat(msg, '系统提示词');
-        } catch (err: any) {
-          console.error('[Cuckoo Code] 注入进度维护引导失败:', err && err.message);
-        }
+        setPendingProgressGuide(progressFolder);
+        console.log('[Cuckoo Code] 已设置待注入的进度维护引导: ' + progressFolder);
       }
     }
   }

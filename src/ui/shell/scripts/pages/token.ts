@@ -103,7 +103,7 @@ if (tkAutoSaveBtn) tkAutoSaveBtn.addEventListener('click', async () => {
           await ckAlert(
             (d.progressCreated ? '已创建「项目进度」文件夹：\n' : '「项目进度」文件夹已存在：\n') +
             d.progressFolder +
-            '\n\n已通知当前对话开始维护进度文件（GOAL.md / PROGRESS.md / TODO.md 等）。',
+            '\n\n等你发布任务后，AI 会自动把总目标写进 GOAL.md，并持续更新 PROGRESS.md / TODO.md 等进度文件。',
             '自动开启新对话已启用'
           );
         } else if (d.progressHint) {
