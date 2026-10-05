@@ -43,12 +43,17 @@
 > 为什么分两步：保存设置时用户还没提任务，立即发"请写 GOAL.md"AI 会无内容可写。
 > 故等用户真正发布任务（AI 完成一轮回复）后再引导，GOAL.md 才有意义。
 
-#### 行为 C：token 超阈值时（原设计，保留）
+#### 行为 C：token 超阈值时
 
-7. 检查/创建 项目目录下的「项目进度」文件夹（缺文件则按模板补齐，已存在不覆盖）
-8. 提示"项目位置已有：项目进度 文件夹"
-9. 开新对话
-10. 自动初始化项目，系统提示词末尾追加：先读 AI_CONTEXT.md，再依次读 GOAL.md（总目标）、PROGRESS.md（已完成）、TODO.md（待办）；读完判断总目标完成多少、是否已全部完成；未完成则直接继续干活，全部完成则停下明确告知
+7. **先发指令让 AI 把当前进度落盘**到「项目进度」文件（GOAL/PROGRESS/TODO/DECISIONS），等 AI 写完
+   （等待"任务空闲"= 工具循环结束；超时 3 分钟则照常开新对话，不把用户卡死）
+8. 检查/创建 项目目录下的「项目进度」文件夹（缺文件则按模板补齐，已存在不覆盖）
+9. 提示"项目位置已有：项目进度 文件夹"
+10. 开新对话
+11. 自动初始化项目，系统提示词末尾追加：先读 AI_CONTEXT.md，再依次读 GOAL.md（总目标）、PROGRESS.md（已完成）、TODO.md（待办）；读完判断总目标完成多少、是否已全部完成；未完成则直接继续干活，全部完成则停下明确告知
+
+> 第 7 步是本定制新增（对齐"自动压缩"先发摘要指令的做法）：确保新对话读到的进度文件是最新的，
+> 而不是靠 AI 平时自觉维护。超时兜底：即使更新失败/超时，也照常开新对话。
 
 「项目进度」文件夹结构：
     项目进度/
@@ -115,8 +120,13 @@
     并 setPendingProgressGuide() 记下"待注入引导"
   - 新增 PENDING_PROGRESS_KEY / read/set/clearPendingProgressGuide（localStorage 标志）
   - 新增 maybeInjectProgressGuide()：在 onTaskIdle（AI 完成一轮回复）时注入一次进度维护引导
-  - startTokenCounter() 的 onTaskIdle 回调改为先 maybeInjectProgressGuide() 再 checkAutoCompact()
-  - 定制点：所有含 contextMode / new-chat / 项目进度 / progress-guide 的逻辑
+  - 新增 taskIdleWaiters / waitForNextTaskIdle() / resolveTaskIdleWaiters()（等待下一次任务空闲）
+  - 新增 flushProgressThenNewChat()：token 超阈值开新对话前，先发指令让 AI 落盘进度，
+    等 AI 写完（任务空闲）再开；超时 3 分钟则照常开新对话
+  - checkAutoCompact() 的 new-chat 分支改调 flushProgressThenNewChat()
+  - startTokenCounter() 的 onTaskIdle 回调改为先 resolveTaskIdleWaiters()，
+    再 maybeInjectProgressGuide()，最后 checkAutoCompact()
+  - 定制点：所有含 contextMode / new-chat / 项目进度 / progress-guide / taskIdle 的逻辑
 
 - **src/overlay/panels/settings.ts**（修复上游遗留 bug）
   - applySettingsData()：goalMaxIterations 缺失时不再报错拦截，改为沿用当前存储值（默认 50）。
