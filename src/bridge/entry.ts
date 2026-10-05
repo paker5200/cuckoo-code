@@ -146,9 +146,9 @@ function init(): void {
         ipcRenderer.send('cuckoo-autocompact-result', { reqId, ok: false, error: err.message });
       }
     });
-    ipcRenderer.on('cuckoo-save-autocompact', (_e: any, { reqId, data }: any) => {
+    ipcRenderer.on('cuckoo-save-autocompact', async (_e: any, { reqId, data }: any) => {
       try {
-        const res = applyAutoCompactConfig(data);
+        const res = await applyAutoCompactConfig(data);
         ipcRenderer.send('cuckoo-autocompact-result', { reqId, ok: res.success, data: res.data, error: res.error });
       } catch (err: any) {
         ipcRenderer.send('cuckoo-autocompact-result', { reqId, ok: false, error: err.message });

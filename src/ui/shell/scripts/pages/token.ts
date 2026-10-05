@@ -96,6 +96,20 @@ if (tkAutoSaveBtn) tkAutoSaveBtn.addEventListener('click', async () => {
     if (r && r.success) {
       tkAutoSaveBtn.textContent = '已保存';
       setTimeout(() => { tkAutoSaveBtn.textContent = '保存设置'; }, 1200);
+      // new-chat：反馈「项目进度」文件夹创建结果
+      if (mode === 'new-chat') {
+        const d = (r && r.data) || {};
+        if (d.progressFolder) {
+          await ckAlert(
+            (d.progressCreated ? '已创建「项目进度」文件夹：\n' : '「项目进度」文件夹已存在：\n') +
+            d.progressFolder +
+            '\n\n已通知当前对话开始维护进度文件（GOAL.md / PROGRESS.md / TODO.md 等）。',
+            '自动开启新对话已启用'
+          );
+        } else if (d.progressHint) {
+          await ckAlert(d.progressHint, '提示');
+        }
+      }
     } else {
       await ckAlert((r && r.error) || '保存失败');
     }

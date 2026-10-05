@@ -206,6 +206,21 @@ function registerSessionIpc(): void {
     };
   });
 
+  // 仅确保「项目进度」文件夹存在（不导航、不开新对话）。
+  // 用于保存上下文策略为 new-chat 时立即创建文件夹，使当前对话即可开始维护进度。
+  ipcMain.handle('ensure-progress-folder', async (_event: any, { projectDir }: any) => {
+    if (!projectDir || !String(projectDir).trim()) return { success: false, error: '项目目录为空' };
+    try {
+      const info = ensureProgressFolder(projectDir);
+      console.log('[Cuckoo Code] 项目进度文件夹已就绪: ' + info.folder +
+        '（本次新建文件: ' + (info.createdFiles.join(', ') || '无') + '）');
+      return { success: true, folder: info.folder, created: info.created, createdFiles: info.createdFiles };
+    } catch (err: any) {
+      console.error('[Cuckoo Code] 创建项目进度文件夹失败: ' + err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
   // 导航到会话
   ipcMain.handle('navigate-session', async (event: any, { sessionId }: any) => {
     if (!sessionId) return { success: false, error: '缺少会话ID' };

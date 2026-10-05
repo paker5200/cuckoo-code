@@ -29,6 +29,9 @@ let electronAPI: any = {
   newConversationWithProgress: (projectDir: any) => {
     return ipcRenderer.invoke('new-conversation-with-progress', { projectDir });
   },
+  ensureProgressFolder: (projectDir: any) => {
+    return ipcRenderer.invoke('ensure-progress-folder', { projectDir });
+  },
   executeTool: (toolName: any, params: any, callId: any) => {
     return ipcRenderer.invoke('execute-tool', { toolName, params, callId });
   },

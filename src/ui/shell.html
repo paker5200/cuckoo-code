@@ -3024,6 +3024,17 @@
         setTimeout(() => {
           tkAutoSaveBtn.textContent = "\u4FDD\u5B58\u8BBE\u7F6E";
         }, 1200);
+        if (mode === "new-chat") {
+          const d = r && r.data || {};
+          if (d.progressFolder) {
+            await ckAlert(
+              (d.progressCreated ? "\u5DF2\u521B\u5EFA\u300C\u9879\u76EE\u8FDB\u5EA6\u300D\u6587\u4EF6\u5939\uFF1A\n" : "\u300C\u9879\u76EE\u8FDB\u5EA6\u300D\u6587\u4EF6\u5939\u5DF2\u5B58\u5728\uFF1A\n") + d.progressFolder + "\n\n\u5DF2\u901A\u77E5\u5F53\u524D\u5BF9\u8BDD\u5F00\u59CB\u7EF4\u62A4\u8FDB\u5EA6\u6587\u4EF6\uFF08GOAL.md / PROGRESS.md / TODO.md \u7B49\uFF09\u3002",
+              "\u81EA\u52A8\u5F00\u542F\u65B0\u5BF9\u8BDD\u5DF2\u542F\u7528"
+            );
+          } else if (d.progressHint) {
+            await ckAlert(d.progressHint, "\u63D0\u793A");
+          }
+        }
       } else {
         await ckAlert(r && r.error || "\u4FDD\u5B58\u5931\u8D25");
       }

@@ -657,8 +657,12 @@ function getAutoCompactConfig(): { mode: ContextMode; threshold: number } {
   return { mode: readContextMode(), threshold };
 }
 
-/** 保存上下文策略配置（更新内存 + localStorage） */
-function applyAutoCompactConfig(data: any): { success: boolean; error?: string; data?: any } {
+/**
+ * 保存上下文策略配置（更新内存 + localStorage）。
+ * mode='new-chat' 时额外：立即创建「项目进度」文件夹，并给当前对话注入"开始维护进度"的引导，
+ * 让 AI 从现在起就把目标/已完成/待办写入进度文件（而非等 token 超阈值才建）。
+ */
+async function applyAutoCompactConfig(data: any): Promise<{ success: boolean; error?: string; data?: any }> {
   // 兼容旧字段 enabled：enabled=true → compact
   let mode: ContextMode = 'off';
   if (data && (data.mode === 'off' || data.mode === 'compact' || data.mode === 'new-chat')) {
@@ -677,7 +681,56 @@ function applyAutoCompactConfig(data: any): { success: boolean; error?: string; 
   } catch (err: any) {
     return { success: false, error: err.message };
   }
-  return { success: true, data: { mode, threshold: th } };
+
+  // ===== new-chat：立即建「项目进度」文件夹 + 注入当前对话引导 =====
+  let progressFolder: string | null = null;
+  let progressCreated = false;
+  let progressHint = '';
+  if (mode === 'new-chat') {
+    const projectDir = state.currentProjectDir;
+    if (!projectDir) {
+      progressHint = '未选择项目目录，暂无法创建「项目进度」文件夹（请先初始化项目）';
+    } else {
+      const api = (window as any).electronAPI;
+      if (api && typeof api.ensureProgressFolder === 'function') {
+        try {
+          const r = await api.ensureProgressFolder(projectDir);
+          if (r && r.success) {
+            progressFolder = r.folder;
+            progressCreated = r.created === true;
+          } else {
+            progressHint = '创建「项目进度」文件夹失败：' + ((r && r.error) || '未知错误');
+          }
+        } catch (err: any) {
+          progressHint = '创建「项目进度」文件夹失败：' + (err.message || err);
+        }
+      } else {
+        progressHint = '当前环境不支持创建「项目进度」文件夹';
+      }
+      // 注入当前对话：让 AI 从现在开始维护进度文件
+      if (progressFolder) {
+        try {
+          const folder = progressFolder;
+          const msg =
+            '【项目进度文件夹已启用】' + String.fromCharCode(10) +
+            '已在项目目录下创建「项目进度」文件夹：' + folder + String.fromCharCode(10) +
+            '从现在起，请把本次任务的总目标、已完成、待办同步记录到该文件夹下：' + String.fromCharCode(10) +
+            '- GOAL.md：本次任务的总目标（原始需求/交付物/验收标准/整体进度）' + String.fromCharCode(10) +
+            '- PROGRESS.md：已完成事项（打勾+日期）' + String.fromCharCode(10) +
+            '- TODO.md：待办' + String.fromCharCode(10) +
+            '- DECISIONS.md：重要决策及原因' + String.fromCharCode(10) +
+            '记录规则详见 ' + folder + '\\AI_CONTEXT.md。' + String.fromCharCode(10) +
+            '请先读一遍 AI_CONTEXT.md，然后把当前任务的总目标写入 GOAL.md，之后每完成一项就更新 PROGRESS.md/TODO.md，' +
+            '这样将来"自动开启新对话"时，新对话能通过这些文件承接上下文、继续未完成的工作。';
+          await sendToChat(msg, '系统提示词');
+        } catch (err: any) {
+          console.error('[Cuckoo Code] 注入进度维护引导失败:', err && err.message);
+        }
+      }
+    }
+  }
+
+  return { success: true, data: { mode, threshold: th, progressFolder, progressCreated, progressHint } };
 }
 
 /** 手动触发压缩（调用压缩流程） */
