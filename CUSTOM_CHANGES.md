@@ -107,6 +107,7 @@
   - build.productName: Cuckoo-Code → Cuckoo Code Flash
   - build.publish.owner: wangyongpeng90 → paker5200
   - artifactName（win/mac/nsis）: cuckoo-code-* → cuckoo-code-flash-*
+  - build.files 新增 "!**/*.log"（★关键，见第八节"打包注意事项"）
   - ⚠️ version 字段每次上游更新必冲突，合并时**取上游的新版本号**（如 0.8.8），不要保留 0.8.7
 
 - **src/app/entry.ts**
@@ -202,5 +203,32 @@
     npm run build:win:nsis:local
 
 产物在 dist/ 下：cuckoo-code-flash-win-v{版本号}.exe
+
+### ⚠️ 打包注意事项（血泪教训，务必遵守）
+
+1. **绝对不要在项目目录内写打包日志 / 临时文件。**
+   例如不要写 `npm run build:win:nsis:local > build.log 2>&1`。
+   原因：package.json 的 build.files 含 "**/*"（打包进所有文件），
+   而被持续写入的日志文件大小会中途变化，导致 electron-builder 生成的
+   asar 头部偏移与实际数据错位 → 整个 app.asar 损坏 →
+   安装后双击**无任何反应**（主进程解析 package.json 失败，退出码 1，无日志）。
+
+   正确做法：日志写到项目外，例如
+       npm run build:win:nsis:local > %TEMP%\ccbuild.log 2>&1
+
+2. 已加防护：build.files 含 "!**/*.log"，即使误在项目内产生 .log 也不会打进 asar。
+   但"写入中的任意文件"都可能破坏 asar，所以**根因是别在项目内写构建期间的临时文件**，
+   "!**/*.log" 只是兜底，不是万能。
+
+3. 若打包后双击无反应，优先检查 asar 是否损坏：
+   用 @electron/asar 的 extractFile 读 app.asar 里的 package.json，
+   正常应能 JSON.parse 成功且 name=cuckoo-code-flash；若报 JSON 非法，即 asar 已损坏，需清理 dist 重新打包。
+
+### ✅ 打包后必做自检
+
+    # 1) 校验 asar 内 package.json 是否合法
+    node -e "import('@electron/asar').then(a=>console.log(a.default.extractFile('dist/win-unpacked/resources/app.asar','package.json').toString().slice(0,80)))"
+    # 2) 实测启动（应能保持运行，而非秒退）
+    #    双击 dist/win-unpacked/Cuckoo Code Flash.exe 或安装后运行
 
 ---
