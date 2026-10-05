@@ -137,6 +137,7 @@
       "!dist",
       "!build",
       "!**/*.md",
+      "!**/*.log",
       "!LICENSE",
       "src/prompt/*.md",
       "src/overlay/template/*.html",
