@@ -28,13 +28,27 @@
 - 自动压缩（保留摘要，原功能）
 - 自动开启新对话（不压缩，靠「项目进度」文件夹承接上下文）
 
-触发条件与原来相同：超过 N 万 tokens。
+#### 行为 A：保存策略为"自动开启新对话"时（立即发生）
 
-触发"自动开启新对话"时：
-1. 检查/创建 项目目录下的「项目进度」文件夹（缺文件则按模板补齐，已存在不覆盖）
-2. 提示"项目位置已有：项目进度 文件夹"
-3. 开新对话
-4. 自动初始化项目，系统提示词末尾追加：先读 AI_CONTEXT.md，再依次读 GOAL.md（总目标）、PROGRESS.md（已完成）、TODO.md（待办）；读完判断总目标完成多少、是否已全部完成；未完成则直接继续干活，全部完成则停下明确告知
+1. **立即检查/创建** 项目目录下的「项目进度」文件夹（缺文件则按模板补齐，已存在不覆盖）
+2. **弹窗告知**文件夹路径和创建结果
+3. 此时**不向对话发任何消息**（因为用户往往还没发布任务）
+
+#### 行为 B：用户发布任务后（AI 完成一轮回复时）
+
+4. 系统**注入一次**引导消息，让 AI：读 AI_CONTEXT.md → 把总目标写进 GOAL.md → 之后每完成一项更新 PROGRESS.md / TODO.md
+5. 引导**只注入一次**（用 localStorage 标志 cuckoo-pending-progress-guide 控制，注入后清除）
+6. 引导措辞带容错：明确要求"GOAL.md 记最开始那个完整目标，不要用后续零散选择覆盖；方案选择进 DECISIONS.md"
+
+> 为什么分两步：保存设置时用户还没提任务，立即发"请写 GOAL.md"AI 会无内容可写。
+> 故等用户真正发布任务（AI 完成一轮回复）后再引导，GOAL.md 才有意义。
+
+#### 行为 C：token 超阈值时（原设计，保留）
+
+7. 检查/创建 项目目录下的「项目进度」文件夹（缺文件则按模板补齐，已存在不覆盖）
+8. 提示"项目位置已有：项目进度 文件夹"
+9. 开新对话
+10. 自动初始化项目，系统提示词末尾追加：先读 AI_CONTEXT.md，再依次读 GOAL.md（总目标）、PROGRESS.md（已完成）、TODO.md（待办）；读完判断总目标完成多少、是否已全部完成；未完成则直接继续干活，全部完成则停下明确告知
 
 「项目进度」文件夹结构：
     项目进度/
@@ -50,6 +64,8 @@
   让 AI 每次都能先搞清楚总目标，并据此判断任务是否全部完成。
 - 触发后的行为是"自动继续干活"，不等待用户确认；
   只有判定"全部完成"时才停下告知用户。
+- 为让 GOAL.md 从一开始就有内容（而非等 token 超阈值才空着），
+  保存 new-chat 后、用户发布任务时会引导 AI 立即开始维护进度文件（见行为 B）。
 
 ### 功能 2：改名 Cuckoo Code Flash（与原版并存）
 
@@ -69,32 +85,50 @@
   新增模块。负责创建「项目进度」文件夹 + 默认模板（AI_CONTEXT.md / GOAL.md / PROGRESS.md / TODO.md / DECISIONS.md / 交接笔记/），
   导出 ensureProgressFolder() 和 buildProgressInstruction()。
   注意：GOAL.md（任务总目标）是为了让 AI 在多次开新对话后仍记得最初任务、并能判断是否全部完成。
+  AI_CONTEXT.md 模板里规定了记录规则：完成功能→PROGRESS.md，重要选择→DECISIONS.md，新待办→TODO.md，目标变化→GOAL.md。
 
 ### 🟡 功能相关改动（上游若改了同一文件，需小心合并）
 
 - **src/app/ipc/session.ts**
   - 顶部新增 import：ensureProgressFolder, buildProgressInstruction from '../../session/project-progress.js'
-  - 新增 IPC handler：'new-conversation-with-progress'
-  - 定制点：新增的 handler 块
+  - 新增 IPC handler：'new-conversation-with-progress'（token 超阈值时用）
+  - 新增 IPC handler：'ensure-progress-folder'（保存 new-chat 时仅建文件夹，不导航）
+  - 定制点：新增的两个 handler 块
 
 - **src/bridge/api.ts**
   - electronAPI 新增方法 newConversationWithProgress（调 IPC 'new-conversation-with-progress'）
+  - electronAPI 新增方法 ensureProgressFolder（调 IPC 'ensure-progress-folder'）
   - 定制点：updateProjectDir 之后新增的几行
 
-- **src/overlay/events.ts**（改动最大，144 行，冲突高发）
+- **src/bridge/entry.ts**
+  - 'cuckoo-save-autocompact' 回调改为 async（因 applyAutoCompactConfig 变 async）
+  - 定制点：那一行加 await
+
+- **src/overlay/events.ts**（改动最大，冲突高发）
   - autoCompactEnabled(bool) → contextMode('off'|'compact'|'new-chat')
   - 新增 readContextMode()（含旧配置迁移）
   - loadAutoCompactConfig / saveAutoCompactConfig 改为读写 mode
   - checkAutoCompact() 按 mode 分支：compact 走原 runCompaction，new-chat 走 triggerNewChatWithProgress
-  - 新增 triggerNewChatWithProgress()
+  - 新增 triggerNewChatWithProgress()（token 超阈值时开新对话）
   - getAutoCompactConfig / applyAutoCompactConfig 返回/接收 mode（兼容旧 enabled 字段）
-  - 定制点：所有含 contextMode / new-chat / 项目进度 的逻辑
+  - applyAutoCompactConfig 改为 async：保存 new-chat 时调 ensureProgressFolder 建文件夹，
+    并 setPendingProgressGuide() 记下"待注入引导"
+  - 新增 PENDING_PROGRESS_KEY / read/set/clearPendingProgressGuide（localStorage 标志）
+  - 新增 maybeInjectProgressGuide()：在 onTaskIdle（AI 完成一轮回复）时注入一次进度维护引导
+  - startTokenCounter() 的 onTaskIdle 回调改为先 maybeInjectProgressGuide() 再 checkAutoCompact()
+  - 定制点：所有含 contextMode / new-chat / 项目进度 / progress-guide 的逻辑
+
+- **src/overlay/panels/settings.ts**（修复上游遗留 bug）
+  - applySettingsData()：goalMaxIterations 缺失时不再报错拦截，改为沿用当前存储值（默认 50）。
+    原因：壳页面设置页不提供该字段，上游却强制校验，导致壳页面保存任何设置都被拦截。
+  - 上游若修复此 bug，可接受上游版本（改动仅此一处）。
 
 - **src/ui/shell/partials/pages/token.html**
   - "自动压缩"开关（ck-switch）→ "上下文策略"三选一单选（ck-radio-group）
 
 - **src/ui/shell/scripts/pages/token.ts**
   - loadAutoCompact / 保存逻辑改为读写 mode（name="tk-context-mode" 的 radio）
+  - 保存 new-chat 成功后弹窗反馈文件夹路径，并说明"发布任务后 AI 会自动维护进度文件"
 
 - **src/ui/shell/styles/pages.css**
   - 新增 .ck-radio-group / .ck-radio-item 样式
