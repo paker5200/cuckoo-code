@@ -209,8 +209,17 @@ function applySettingsData(data: any): { success: boolean; error?: string } {
   if (!Number.isFinite(amin) || amin < 0) return { success: false, error: '附件上传间隔最小值必须是非负数字' };
   if (!Number.isFinite(amax) || amax < amin) return { success: false, error: '附件上传间隔最大值不能小于最小值' };
   if (amax > 60000) return { success: false, error: '附件上传间隔最大值不能超过 60 秒' };
-  const goalMax = parseInt(data && data.goalMaxIterations, 10);
-  if (Number.isNaN(goalMax) || goalMax <= 0) return { success: false, error: '目标最大迭代次数必须是正整数' };
+  // goalMaxIterations 并非所有调用方都提供（如壳页面设置页无此项）：
+  // 缺失时沿用当前存储值（默认 50），避免误报"必须是正整数"而拦截整个保存。
+  const goalRaw = data && data.goalMaxIterations;
+  let goalMax: number;
+  if (goalRaw === undefined || goalRaw === null || goalRaw === '') {
+    goalMax = parseInt(lsGet('cuckoo-goal-max-iterations') || '', 10);
+    if (Number.isNaN(goalMax) || goalMax <= 0) goalMax = 50;
+  } else {
+    goalMax = parseInt(goalRaw, 10);
+    if (Number.isNaN(goalMax) || goalMax <= 0) return { success: false, error: '目标最大迭代次数必须是正整数' };
+  }
 
   try {
     localStorage.setItem('cuckoo-retry-enabled', (data && data.retryEnabled) ? '1' : '0');
