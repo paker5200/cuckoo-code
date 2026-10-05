@@ -185,7 +185,7 @@
   .viewport { flex: 1; min-width: 0; }
 
   /* ===== 侧边栏 ===== */
-  .ck-sidebar { width: 320px; flex-shrink: 0; display: flex; background: var(--ck-bg); border-right: 1px solid var(--ck-border); }
+  .ck-sidebar { width: 320px; flex-shrink: 0; display: flex; position: relative; background: var(--ck-bg); border-right: 1px solid var(--ck-border); }
   .ck-activitybar {
     width: 48px; flex-shrink: 0;
     display: flex; flex-direction: column; align-items: center;
@@ -542,11 +542,113 @@
   /* 收起：只隐藏面板，保留图标栏（宽度从 320 �?46�?*/
   .ck-sidebar.ck-collapsed { width: 46px; }
   .ck-sidebar.ck-collapsed .ck-panel { display: none; }
+  /* 拖拽调宽手柄（贴右边，宽热区） */
+  .ck-sidebar-resizer {
+    position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
+    cursor: col-resize; z-index: 30;
+  }
+  .ck-sidebar-resizer:hover { background: var(--ck-primary-soft); }
+  .ck-sidebar.ck-collapsed .ck-sidebar-resizer { display: none; }
   /* 滚动条（跟随主题�?*/
   .ck-panel-body::-webkit-scrollbar { width: 4px; }
   .ck-panel-body::-webkit-scrollbar-track { background: transparent; }
   .ck-panel-body::-webkit-scrollbar-thumb { background: var(--ck-scroll-thumb); border-radius: 2px; }
   .ck-panel-body::-webkit-scrollbar-thumb:hover { background: var(--ck-scroll-hover); }
+
+  /* ===== 项目文件树 ===== */
+  .ck-ft-search {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px; margin: 0 4px 6px;
+    background: var(--ck-surface); border-radius: 8px;
+  }
+  .ck-ft-search svg { width: 13px; height: 13px; color: var(--ck-text-dim); flex-shrink: 0; }
+  .ck-ft-search-input {
+    flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+    font-family: inherit; font-size: 12px; color: var(--ck-text);
+  }
+  .ck-ft-search-input::placeholder { color: var(--ck-text-dim); }
+  .ck-ft-path { font-size: 10.5px; color: var(--ck-text-dim); margin-left: 6px; flex-shrink: 0; }
+  .ck-ft-hl { background: var(--ck-primary-soft); color: var(--ck-primary); border-radius: 2px; }
+  /* 文件页：树撑满面板剩余高度、内部滚动（横向滚动条固定可见区底部，不用把垂直滚到底） */
+  .ck-tab[data-panel="files"] { flex: 1; min-height: 0; }
+  .ck-ft { padding: 2px 0; overflow: auto; flex: 1; min-height: 0; }
+  /* 滚动条：与侧边栏一致（4px、圆角 2px、透明轨道） */
+  .ck-ft::-webkit-scrollbar { width: 4px; height: 4px; }
+  .ck-ft::-webkit-scrollbar-track { background: transparent; }
+  .ck-ft::-webkit-scrollbar-thumb { background: var(--ck-scroll-thumb); border-radius: 2px; }
+  .ck-ft::-webkit-scrollbar-thumb:hover { background: var(--ck-scroll-hover); }
+  .ck-ft-row {
+    display: flex; align-items: center; gap: 4px;
+    padding: 4px 8px; border-radius: 6px; cursor: pointer;
+    font-size: 12.5px; color: var(--ck-text-2);
+    white-space: nowrap;
+    width: max-content; min-width: 100%; box-sizing: border-box;
+    transition: background .12s;
+  }
+  .ck-ft-row:hover { background: var(--ck-surface-hover); }
+  /* caret：右三角，展开时旋转 90°（VSCode 风） */
+  .ck-ft-caret {
+    width: 14px; height: 14px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ck-text-dim); transition: transform .12s;
+  }
+  .ck-ft-caret svg { width: 11px; height: 11px; }
+  .ck-ft-dir.open .ck-ft-caret { transform: rotate(90deg); }
+  /* 图标：文件夹/文件区分 */
+  .ck-ft-icon {
+    min-width: 15px; height: 15px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ck-ft-icon svg { width: 15px; height: 15px; }
+  /* 图标：目录=主色文件夹；媒体=图形；代码=圆角角标（VSCode Seti 风） */
+  .ck-ft-i-dir { color: var(--ck-primary); }
+  .ck-ft-i-file { color: var(--ck-text-dim); opacity: .8; }
+  .ck-ft-i-media { color: #a855f7; }
+  .ck-ft-badge {
+    min-width: 16px; height: 15px; padding: 0 3px; box-sizing: border-box;
+    border-radius: 3px;
+    background: currentColor;        /* 底色 = 类型色（由 ck-ft-c-* 提供）*/
+    -webkit-text-fill-color: #fff;   /* 白字 */
+    color: var(--ck-text-dim);
+    font-size: 8.5px; font-weight: 800; letter-spacing: -.2px;
+    line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+  }
+  /* 文件名配色（原图标配色迁到文件名） */
+  .ck-ft-c-file { color: var(--ck-text-dim); }
+  .ck-ft-c-ts   { color: #2b7cc4; }
+  .ck-ft-c-js   { color: #c9a227; }
+  .ck-ft-c-json { color: #b8a400; }
+  .ck-ft-c-md   { color: #4a9eca; }
+  .ck-ft-c-css  { color: #8a5cf6; }
+  .ck-ft-c-html { color: #d9534f; }
+  .ck-ft-c-py   { color: #3572A5; }
+  .ck-ft-c-java { color: #b07219; }
+  .ck-ft-c-go   { color: #1aa5c4; }
+  .ck-ft-c-rs   { color: #c9784a; }
+  .ck-ft-c-rb   { color: #b03060; }
+  .ck-ft-c-php  { color: #6b7bb8; }
+  .ck-ft-c-c    { color: #6b7280; }
+  .ck-ft-c-cs   { color: #178600; }
+  .ck-ft-c-sh   { color: #5bad6f; }
+  .ck-ft-c-yml  { color: #c0392b; }
+  .ck-ft-c-xml  { color: #d97706; }
+  .ck-ft-c-sql  { color: #d97706; }
+  .ck-ft-c-img  { color: #a855f7; }
+  .ck-ft-c-txt  { color: #8a8f9b; }
+  .ck-ft-c-lock { color: #9ca3af; }
+  .ck-ft-name { white-space: nowrap; flex: 1; }
+  /* @ 按钮：悬停行才显示（始终占位防抖动） */
+  .ck-ft-at {
+    flex-shrink: 0; width: 18px; height: 18px; margin-left: 6px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 5px; font-size: 12px; font-weight: 700;
+    color: var(--ck-text-dim); cursor: pointer;
+    visibility: hidden; opacity: 0; transition: opacity .12s;
+  }
+  .ck-ft-row:hover .ck-ft-at { visibility: visible; opacity: 1; }
+  .ck-ft-at:hover { background: var(--ck-primary-soft); color: var(--ck-primary); }
+  .ck-ft-dir .ck-ft-name { color: var(--ck-text); font-weight: 500; }
+  .ck-ft-truncated { padding: 8px; font-size: 11px; color: var(--ck-text-dim); text-align: center; }
 
   /* ===== 工作区（会话）===== */
   .ck-ws-group { display: flex; flex-direction: column; }
@@ -606,6 +708,32 @@
   }
   .ck-ws-act:hover { background: var(--ck-surface-hover); color: var(--ck-text); }
   .ck-ws-act svg { width: 13px; height: 13px; }
+  /* 展开三角（子代理/压缩历史）：右三角，展开旋转 90° */
+  .ck-ws-expand {
+    width: 14px; height: 14px; flex-shrink: 0; margin-left: -10px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ck-text-dim); transition: transform .12s; border-radius: 4px;
+  }
+  .ck-ws-expand svg { width: 10px; height: 10px; }
+  .ck-ws-expand.open { transform: rotate(90deg); }
+  .ck-ws-expand:hover { background: var(--ck-surface-hover); color: var(--ck-text); }
+  .ck-ws-expand-hidden { visibility: hidden; }
+  /* 子节点（缩进） */
+  .ck-ws-item.sub { padding-left: 34px; }
+  .ck-ws-item.sub .ck-ws-name { color: var(--ck-text-dim); font-size: 11.5px; }
+  .ck-ws-item.sub.current .ck-ws-name { color: var(--ck-primary); }
+  /* 子节点分组标题（可点击展开/收起）*/
+  .ck-ws-subgroup-title {
+    padding: 5px 10px 5px 28px;
+    font-size: 10.5px; color: var(--ck-text-dim); font-weight: 600;
+    cursor: pointer; border-radius: 6px; display: flex; align-items: center;
+    transition: background .12s;
+  }
+  .ck-ws-subgroup-title:hover { background: var(--ck-surface-hover); }
+  .ck-ws-subgroup-title::before {
+    content: '▸ '; margin-right: 4px; font-size: 9px;
+  }
+  .ck-ws-subgroup-title.open::before { content: '▾ '; }
   /* 已归档区 */
   .ck-ws-archived { margin-top: 2px; }
   .ck-ws-archived-title {
@@ -766,6 +894,55 @@
   }
   .ck-task-status { display: inline-flex; align-items: center; gap: 5px; color: var(--ck-primary); font-weight: 600; }
 
+  /* ===== 对话（网页端会话列表） ===== */
+  .ck-conv-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 7px; cursor: pointer; font-size: 12.5px; color: var(--ck-text-2); }
+  .ck-conv-item:hover { background: var(--ck-surface-hover); color: var(--ck-text); }
+  .ck-conv-item.ck-conv-active { background: var(--ck-primary-soft); color: var(--ck-primary); }
+  .ck-conv-item.ck-conv-disabled { opacity: .4; cursor: not-allowed; pointer-events: none; }
+  .ck-conv-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ===== 插件卡片（市场 + 已安装）=====
+     不复用 .ck-snip-preview：那是单行截断的，简介会显示不全。 */
+  .ck-plugin-item { padding: 10px 12px; border-bottom: 1px solid var(--ck-border); }
+  .ck-plugin-item:last-child { border-bottom: none; }
+  .ck-plugin-item:hover { background: var(--ck-surface); }
+  .ck-plugin-head { display: flex; align-items: center; gap: 8px; }
+  .ck-plugin-name {
+    font-size: 13px; font-weight: 600; color: var(--ck-text);
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* 已安装 / 有更新 徽标 */
+  .ck-plugin-badge {
+    font-size: 10px; padding: 1px 6px; border-radius: 4px;
+    flex-shrink: 0; white-space: nowrap;
+  }
+  .ck-plugin-badge.on { background: rgba(74, 222, 128, .15); color: var(--ck-green); }
+  .ck-plugin-badge.update { background: rgba(255, 193, 7, .16); color: #ffc107; }
+  .ck-plugin-badge.archived { background: rgba(255, 107, 122, .15); color: var(--ck-red); }
+  /* 简介：多行，允许折行 */
+  .ck-plugin-desc {
+    font-size: 12px; color: var(--ck-text-dim); margin-top: 5px;
+    line-height: 1.55; white-space: normal; word-break: break-word;
+  }
+  /* 元信息行 */
+  .ck-plugin-meta {
+    font-size: 11px; color: var(--ck-text-dim); margin-top: 7px;
+    display: flex; flex-wrap: wrap; gap: 3px 10px; align-items: center;
+  }
+  .ck-plugin-meta .sep { opacity: .4; }
+  /* 版本要求行 */
+  .ck-plugin-req { font-size: 11px; color: var(--ck-text-dim); margin-top: 5px; }
+  .ck-plugin-req.warn { color: #ffc107; }
+  .ck-plugin-req.err { color: var(--ck-text-dim); opacity: .75; }
+  /* 已安装行的开关与操作按钮 */
+  .ck-plugin-switch-row { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .ck-plugin-switch-label { font-size: 11px; color: var(--ck-text-dim); }
+  /* 插件卡片的操作按钮：**常驻可见**。
+     不要复用 .ck-snip-actions —— 它带 opacity:0 + pointer-events:none，
+     且显示规则绑定在 .ck-snip-item:hover 上；放进 .ck-plugin-item 会永远不可见也点不到。
+     插件卡片的安装/更新/卸载是主要操作，不该藏到悬停里。 */
+  .ck-plugin-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+
 </style>
 </head>
 <body>
@@ -792,8 +969,8 @@
         <input class="url-input" id="url-input" placeholder="输入网址后回车" spellcheck="false" autocomplete="off"/>
       </div>
       <div class="divider"></div>
-      <button class="nav-btn" id="btn-home" title="主页">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+      <button class="nav-btn" id="btn-home" title="新建对话">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
       </button>
     </div>
 
@@ -803,12 +980,23 @@
           <button class="ck-ab-item ck-ab-active" data-tab="workspaces" title="工作区（会话）">
             <svg class="ck-ab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
           </button>
+          <button class="ck-ab-item" data-tab="files" title="项目文件">
+            <svg class="ck-ab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></svg>
+          </button>
           <button class="ck-ab-item" data-tab="snippets" title="提示词">
             <svg class="ck-ab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           </button>
           <button class="ck-ab-item" data-tab="skills" title="技能">
             <svg class="ck-ab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
           </button>
+          <button class="ck-ab-item" data-tab="plugins" title="插件">
+            <svg class="ck-ab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11H19V7a2 2 0 0 0-2-2h-4V3.5a2.5 2.5 0 0 0-5 0V5H4a2 2 0 0 0-2 2v3.8h1.5a2.2 2.2 0 0 1 0 4.4H2V19a2 2 0 0 0 2 2h3.8v-1.5a2.2 2.2 0 0 1 4.4 0V21H18a2 2 0 0 0 2-2v-4h1.5a2.5 2.5 0 0 0 0-5z"/></svg>
+          </button>
+          <!-- 对话入口：暂时注释（新合并来的功能，先隐藏）
+          <button class="ck-ab-item" data-tab="conversations" title="对话">
+            <svg class="ck-ab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </button>
+          -->
           <button class="ck-ab-item" data-tab="agents" title="子代理">
             <svg class="ck-ab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M12 8V4"/><circle cx="12" cy="3" r="1"/><path d="M8 13h.01"/><path d="M16 13h.01"/><path d="M9 17h6"/></svg>
           </button>
@@ -916,6 +1104,62 @@
                 </button>
               </div>
               <div class="ck-list" id="ws-list">
+                <div class="ck-list-empty">加载中…</div>
+              </div>
+            </div>
+
+            <!-- ===== 项目文件 ===== -->
+            <div class="ck-tab" data-panel="files">
+              <div class="ck-actions">
+                <span class="ck-set-group-title" style="flex:1;" id="ft-root">项目文件</span>
+                <button class="ck-icon-btn" id="ft-refresh" title="刷新">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+                </button>
+              </div>
+              <div class="ck-ft-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+                <input class="ck-ft-search-input" id="ft-search" placeholder="搜索文件名…" spellcheck="false" autocomplete="off" />
+              </div>
+              <div class="ck-list ck-ft" id="ft-list">
+                <div class="ck-list-empty">加载中…</div>
+              </div>
+            </div>
+
+            <!-- ===== 对话（读网页端会话列表，实时同步） ===== -->
+            <div class="ck-tab" data-panel="conversations">
+              <div class="ck-actions">
+                <button class="ck-icon-btn" id="conv-new" title="新对话">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+                <span class="ck-set-group-title" style="flex:1;">对话</span>
+                <button class="ck-icon-btn" id="conv-refresh" title="刷新">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+                </button>
+              </div>
+              <div class="ck-list" id="conv-list">
+                <div class="ck-list-empty">加载中…</div>
+              </div>
+            </div>
+
+            <!-- ===== 插件 ===== -->
+            <div class="ck-tab" data-panel="plugins">
+              <div class="ck-actions">
+                <span class="ck-set-group-title" style="flex:1;">已安装插件</span>
+                <button class="ck-icon-btn" id="plugin-open-dir" title="打开插件目录">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                </button>
+                <button class="ck-icon-btn" id="plugin-refresh" title="刷新（重新搜索市场）">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+                </button>
+              </div>
+              <div class="ck-list" id="plugin-installed-list">
+                <div class="ck-list-empty">加载中…</div>
+              </div>
+              <div class="ck-actions">
+                <span class="ck-set-group-title" style="flex:1;">市场</span>
+                <span class="ck-snip-badge" title="唯一搜索源">topic:cuckoo-plugin</span>
+              </div>
+              <div class="ck-list" id="plugin-market-list">
                 <div class="ck-list-empty">加载中…</div>
               </div>
             </div>
@@ -1420,15 +1664,47 @@
   var sidebar = document.getElementById("ck-sidebar");
   var SIDEBAR_EXPANDED = 320;
   var SIDEBAR_COLLAPSED = 46;
+  var MIN_WIDTH = 320;
+  var MAX_WIDTH = 4e3;
+  var WIDTH_KEY = "cuckoo-sidebar-width";
   var tabLoaders = {};
   function registerTab(tab, loader) {
     tabLoaders[tab] = loader;
   }
+  var expandedWidth = (() => {
+    try {
+      const v = Number(localStorage.getItem(WIDTH_KEY));
+      if (Number.isFinite(v) && v >= MIN_WIDTH && v <= MAX_WIDTH) return Math.round(v);
+    } catch (_) {
+    }
+    return SIDEBAR_EXPANDED;
+  })();
+  function saveWidth(w) {
+    try {
+      localStorage.setItem(WIDTH_KEY, String(w));
+    } catch (_) {
+    }
+  }
+  function applySidebarWidth(w) {
+    if (!sidebar) return;
+    if (typeof w !== "number" || !Number.isFinite(w)) return;
+    expandedWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.round(w)));
+    saveWidth(expandedWidth);
+    if (!sidebar.classList.contains("ck-collapsed")) {
+      sidebar.style.width = expandedWidth + "px";
+    }
+  }
   function setCollapsed(collapsed) {
     if (!sidebar) return;
-    if (collapsed) sidebar.classList.add("ck-collapsed");
-    else sidebar.classList.remove("ck-collapsed");
-    if (api.toggleSidebar) api.toggleSidebar(collapsed ? SIDEBAR_COLLAPSED : SIDEBAR_EXPANDED);
+    if (collapsed) {
+      sidebar.classList.add("ck-collapsed");
+      sidebar.style.width = "";
+      if (api.toggleSidebar) api.toggleSidebar(SIDEBAR_COLLAPSED);
+    } else {
+      sidebar.classList.remove("ck-collapsed");
+      sidebar.style.width = expandedWidth + "px";
+      if (api.toggleSidebar) api.toggleSidebar(expandedWidth);
+    }
   }
   function activateTab(item, tab) {
     abItems.forEach((i) => i.classList.remove("ck-ab-active"));
@@ -1466,6 +1742,21 @@
       run();
     });
   });
+  if (sidebar) {
+    const resizer = document.createElement("div");
+    resizer.className = "ck-sidebar-resizer";
+    resizer.title = "\u62D6\u52A8\u8C03\u6574\u5BBD\u5EA6";
+    sidebar.appendChild(resizer);
+    resizer.addEventListener("mousedown", (e) => {
+      if (sidebar.classList.contains("ck-collapsed")) return;
+      e.preventDefault();
+      if (api.startSidebarDrag) api.startSidebarDrag();
+    });
+    if (api.onSidebarDrag) api.onSidebarDrag((w) => applySidebarWidth(w));
+    document.addEventListener("mouseup", () => {
+      if (api.endSidebarDrag) api.endSidebarDrag();
+    });
+  }
 
   // src/ui/shell/scripts/toolbar.ts
   var input = document.getElementById("url-input");
@@ -1554,6 +1845,10 @@
     if (api.reload) api.reload();
   });
   document.getElementById("btn-home").addEventListener("click", () => {
+    if (api.newWebConversation) {
+      api.newWebConversation();
+      return;
+    }
     if (api.home) api.home();
   });
 
@@ -1598,6 +1893,21 @@
   var expandedDirs = /* @__PURE__ */ new Set();
   var archivedOpen = /* @__PURE__ */ new Set();
   var archivedProjectsOpen = { v: false };
+  var expandedNodes = /* @__PURE__ */ new Set();
+  var expandedSubgroups = /* @__PURE__ */ new Set();
+  function collectCompactionHistory(byId, session) {
+    const out = [];
+    let cur = session && session.parentId;
+    let guard = 0;
+    while (cur && guard++ < 50) {
+      const p = byId[cur];
+      if (!p) break;
+      if (p.kind === "subagent") break;
+      out.push(p);
+      cur = p.parentId;
+    }
+    return out;
+  }
   function latestTs(list) {
     let max = 0;
     for (const s of list) {
@@ -1611,13 +1921,15 @@
     const tb = b.updatedAt ? Date.parse(b.updatedAt) : 0;
     return tb - ta;
   }
-  function renderItem(s, currentSessionId, archived = false) {
-    const label = s.title || s.sessionId;
+  function renderItem(s, currentSessionId, archived = false, hasChildren = false, sub = false) {
+    const label = s.kind === "subagent" && s.agentName ? "\u5B50\u4EE3\u7406: " + s.agentName : s.title || s.sessionId;
     const time = relTime(s.updatedAt);
     const isCur = s.sessionId === currentSessionId;
     const renameBtn = '<span class="ck-ws-act" data-act="rename" title="\u91CD\u547D\u540D"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>';
-    const act = archived ? '<span class="ck-ws-act" data-act="unarchive" title="\u53D6\u6D88\u5F52\u6863"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M12 10v6"/><path d="M9 13l3-3 3 3"/></svg></span>' : '<span class="ck-ws-act" data-act="archive" title="\u5F52\u6863"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg></span>';
-    return '<div class="ck-ws-item' + (isCur ? " current" : "") + '" data-session-id="' + escapeAttr(s.sessionId) + '" data-name="' + escapeAttr(label) + '" title="' + escapeAttr(s.sessionId) + '"><span class="ck-ws-name">' + escapeHtml(label) + "</span>" + (time ? '<span class="ck-ws-time">' + escapeHtml(time) + "</span>" : "") + '<span class="ck-ws-acts">' + renameBtn + act + "</span></div>";
+    const act = archived ? '<span class="ck-ws-act" data-act="unarchive" title="\u53D6\u6D88\u5F52\u6863"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M12 10v6"/><path d="M9 13l3-3 3 3"/></svg></span>' : sub ? "" : '<span class="ck-ws-act" data-act="archive" title="\u5F52\u6863"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg></span>';
+    const open = hasChildren && expandedNodes.has(s.sessionId);
+    const caret = hasChildren ? '<span class="ck-ws-expand' + (open ? " open" : "") + '"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg></span>' : sub ? '<span class="ck-ws-expand ck-ws-expand-hidden"></span>' : '<span class="ck-ws-expand ck-ws-expand-hidden"></span>';
+    return '<div class="ck-ws-item' + (isCur ? " current" : "") + (sub ? " sub" : "") + '" data-session-id="' + escapeAttr(s.sessionId) + '" data-name="' + escapeAttr(label) + '" title="' + escapeAttr(s.sessionId) + '">' + caret + '<span class="ck-ws-name">' + escapeHtml(label) + "</span>" + (time ? '<span class="ck-ws-time">' + escapeHtml(time) + "</span>" : "") + '<span class="ck-ws-acts">' + renameBtn + act + "</span></div>";
   }
   function fmtCreatedAt(iso) {
     if (!iso) return "";
@@ -1722,6 +2034,29 @@
         }
       });
     });
+    listEl.querySelectorAll(".ck-ws-expand").forEach((el) => {
+      if (el.classList.contains("ck-ws-expand-hidden")) return;
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const itemEl = el.closest(".ck-ws-item");
+        if (!itemEl) return;
+        const id = itemEl.dataset.sessionId;
+        if (!id) return;
+        if (expandedNodes.has(id)) expandedNodes.delete(id);
+        else expandedNodes.add(id);
+        loadWorkspaces();
+      });
+    });
+    listEl.querySelectorAll(".ck-ws-subgroup-title").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const key = el.dataset.subgroup;
+        if (!key) return;
+        if (expandedSubgroups.has(key)) expandedSubgroups.delete(key);
+        else expandedSubgroups.add(key);
+        loadWorkspaces();
+      });
+    });
     listEl.querySelectorAll(".ck-ws-item").forEach((el) => {
       el.addEventListener("click", async (e) => {
         if (e.target.closest('[data-act="rename"]')) {
@@ -1788,13 +2123,51 @@
         listEl.innerHTML = '<div class="ck-list-empty">\u6682\u65E0\u4F1A\u8BDD</div>';
         return;
       }
-      const groups = {};
+      const byId = {};
+      for (const s of sessions) byId[s.sessionId] = s;
+      const subagentsByParent = {};
       for (const s of sessions) {
+        if (s.kind === "subagent" && s.parentId) {
+          if (!subagentsByParent[s.parentId]) subagentsByParent[s.parentId] = [];
+          subagentsByParent[s.parentId].push(s);
+        }
+      }
+      const mainSessions = sessions.filter((s) => s.kind !== "subagent" && !s.superseded);
+      const groups = {};
+      for (const s of mainSessions) {
         const dir = s.projectDir || "";
         if (!groups[dir]) groups[dir] = { active: [], archived: [] };
         if (s.archived) groups[dir].archived.push(s);
         else groups[dir].active.push(s);
       }
+      const renderConversation = (s, archived) => {
+        const hist = collectCompactionHistory(byId, s);
+        const chainIds = [s.sessionId].concat(hist.map((x) => x.sessionId));
+        const subs = [];
+        for (const cid of chainIds) {
+          const arr = subagentsByParent[cid];
+          if (arr) for (const x of arr) subs.push(x);
+        }
+        const hasChildren = subs.length > 0 || hist.length > 0;
+        let out = renderItem(s, currentSessionId, archived, hasChildren);
+        if (hasChildren && expandedNodes.has(s.sessionId)) {
+          out += '<div class="ck-ws-children">';
+          if (subs.length) {
+            const subKey = s.sessionId + ":sub";
+            const subOpen = expandedSubgroups.has(subKey);
+            out += '<div class="ck-ws-subgroup-title' + (subOpen ? " open" : "") + '" data-subgroup="' + escapeAttr(subKey) + '">\u5B50\u4EE3\u7406\uFF08' + subs.length + "\uFF09</div>";
+            if (subOpen) out += subs.map((x) => renderItem(x, currentSessionId, false, false, true)).join("");
+          }
+          if (hist.length) {
+            const histKey = s.sessionId + ":hist";
+            const histOpen = expandedSubgroups.has(histKey);
+            out += '<div class="ck-ws-subgroup-title' + (histOpen ? " open" : "") + '" data-subgroup="' + escapeAttr(histKey) + '">\u538B\u7F29\u5386\u53F2\uFF08' + hist.length + "\uFF09</div>";
+            if (histOpen) out += hist.map((x) => renderItem(x, currentSessionId, false, false, true)).join("");
+          }
+          out += "</div>";
+        }
+        return out;
+      };
       const dirs = Object.keys(groups).sort((a, b) => {
         const ta = latestTs(groups[a].active.concat(groups[a].archived));
         const tb = latestTs(groups[b].active.concat(groups[b].archived));
@@ -1806,7 +2179,7 @@
         g.archived.sort(byTimeDesc);
         const isOpen = dir === currentDir || expandedDirs.has(dir);
         const isArchOpen = archivedOpen.has(dir);
-        return '<div class="ck-ws-group' + (isOpen ? " open" : "") + '" data-dir="' + escapeAttr(dir) + '"><div class="ck-ws-group-title" title="' + escapeAttr(dir) + '"><svg class="ck-ws-caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg><svg class="ck-ws-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="ck-ws-gname">' + escapeHtml(baseName(dir)) + '</span><span class="ck-ws-gacts"><span class="ck-ws-gact" data-gact="new" title="\u7528\u8BE5\u9879\u76EE\u65B0\u5EFA\u5BF9\u8BDD"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span>' + (archivedProjects.includes(dir) ? '<span class="ck-ws-gact" data-gact="unarchive" title="\u53D6\u6D88\u5F52\u6863"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v5h5"/><path d="M3.5 12a8.5 8.5 0 1 0 2-5.4L3 9"/></svg></span>' : '<span class="ck-ws-gact" data-gact="archive" title="\u5F52\u6863\u9879\u76EE"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg></span>') + '</span></div><div class="ck-ws-items">' + g.active.map((s) => renderItem(s, currentSessionId)).join("") + (g.archived.length ? '<div class="ck-ws-archived' + (isArchOpen ? " open" : "") + '" data-dir="' + escapeAttr(dir) + '"><div class="ck-ws-archived-title">\u5DF2\u5F52\u6863 ' + g.archived.length + ' \u5BF9\u8BDD</div><div class="ck-ws-archived-items">' + g.archived.map((s) => renderItem(s, currentSessionId, true)).join("") + "</div></div>" : "") + "</div></div>";
+        return '<div class="ck-ws-group' + (isOpen ? " open" : "") + '" data-dir="' + escapeAttr(dir) + '"><div class="ck-ws-group-title" title="' + escapeAttr(dir) + '"><svg class="ck-ws-caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg><svg class="ck-ws-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="ck-ws-gname">' + escapeHtml(baseName(dir)) + '</span><span class="ck-ws-gacts"><span class="ck-ws-gact" data-gact="new" title="\u7528\u8BE5\u9879\u76EE\u65B0\u5EFA\u5BF9\u8BDD"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span>' + (archivedProjects.includes(dir) ? '<span class="ck-ws-gact" data-gact="unarchive" title="\u53D6\u6D88\u5F52\u6863"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v5h5"/><path d="M3.5 12a8.5 8.5 0 1 0 2-5.4L3 9"/></svg></span>' : '<span class="ck-ws-gact" data-gact="archive" title="\u5F52\u6863\u9879\u76EE"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg></span>') + '</span></div><div class="ck-ws-items">' + g.active.map((s) => renderConversation(s, false)).join("") + (g.archived.length ? '<div class="ck-ws-archived' + (isArchOpen ? " open" : "") + '" data-dir="' + escapeAttr(dir) + '"><div class="ck-ws-archived-title">\u5DF2\u5F52\u6863 ' + g.archived.length + ' \u5BF9\u8BDD</div><div class="ck-ws-archived-items">' + g.archived.map((s) => renderConversation(s, true)).join("") + "</div></div>" : "") + "</div></div>";
       };
       const activeDirs = dirs.filter((d) => !archivedProjects.includes(d));
       const archivedDirs = dirs.filter((d) => archivedProjects.includes(d));
@@ -1840,6 +2213,300 @@
   if (api.onSessionsChanged) {
     api.onSessionsChanged(() => {
       loadWorkspaces();
+    });
+  }
+
+  // src/ui/shell/scripts/pages/files.ts
+  var expanded = /* @__PURE__ */ new Set();
+  var cachedTree = [];
+  var cachedTruncated = false;
+  var CARET_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg>';
+  var FOLDER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+  var FILE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+  function highlight(text, kw) {
+    const esc = escapeHtml(text);
+    if (!kw) return esc;
+    const escKw = escapeHtml(kw).replace(/[.*+?^$^{}()|[\]\\]/g, "\\$&");
+    try {
+      return esc.replace(new RegExp("(" + escKw + ")", "gi"), '<mark class="ck-ft-hl">$1</mark>');
+    } catch (_) {
+      return esc;
+    }
+  }
+  var EXT_COLOR = {
+    ts: "ts",
+    tsx: "ts",
+    mts: "ts",
+    cts: "ts",
+    js: "js",
+    jsx: "js",
+    mjs: "js",
+    cjs: "js",
+    json: "json",
+    json5: "json",
+    md: "md",
+    markdown: "md",
+    mdx: "md",
+    css: "css",
+    scss: "css",
+    less: "css",
+    sass: "css",
+    html: "html",
+    htm: "html",
+    vue: "html",
+    svelte: "html",
+    py: "py",
+    pyw: "py",
+    java: "java",
+    kt: "java",
+    kts: "java",
+    go: "go",
+    rs: "rs",
+    rb: "rb",
+    php: "php",
+    c: "c",
+    h: "c",
+    cc: "c",
+    cpp: "c",
+    hpp: "c",
+    cxx: "c",
+    cs: "cs",
+    sh: "sh",
+    bash: "sh",
+    zsh: "sh",
+    bat: "sh",
+    cmd: "sh",
+    ps1: "sh",
+    yml: "yml",
+    yaml: "yml",
+    toml: "yml",
+    ini: "yml",
+    conf: "yml",
+    env: "yml",
+    xml: "xml",
+    svg: "xml",
+    sql: "sql",
+    png: "img",
+    jpg: "img",
+    jpeg: "img",
+    gif: "img",
+    webp: "img",
+    bmp: "img",
+    ico: "img",
+    avif: "img",
+    mp4: "img",
+    mp3: "img",
+    wav: "img",
+    mov: "img",
+    webm: "img",
+    txt: "txt",
+    log: "txt",
+    text: "txt",
+    lock: "lock"
+  };
+  var EXT_BADGE = {
+    ts: "TS",
+    tsx: "TS",
+    mts: "TS",
+    cts: "TS",
+    js: "JS",
+    jsx: "JS",
+    mjs: "JS",
+    cjs: "JS",
+    json: "{}",
+    json5: "{}",
+    md: "MD",
+    markdown: "MD",
+    mdx: "MD",
+    css: "CSS",
+    scss: "CSS",
+    less: "CSS",
+    sass: "CSS",
+    html: "<>",
+    htm: "<>",
+    vue: "VUE",
+    svelte: "SVE",
+    py: "PY",
+    pyw: "PY",
+    java: "JV",
+    kt: "KT",
+    kts: "KT",
+    go: "GO",
+    rs: "RS",
+    rb: "RB",
+    php: "PHP",
+    c: "C",
+    h: "H",
+    cc: "C+",
+    cpp: "C+",
+    hpp: "C+",
+    cxx: "C+",
+    cs: "C#",
+    sh: ">_",
+    bash: ">_",
+    zsh: ">_",
+    bat: ">_",
+    cmd: ">_",
+    ps1: ">_",
+    yml: "YML",
+    yaml: "YML",
+    toml: "TML",
+    ini: "INI",
+    conf: "CFG",
+    env: "ENV",
+    xml: "XML",
+    svg: "SVG",
+    sql: "SQL",
+    txt: "TXT",
+    log: "LOG",
+    text: "TXT",
+    lock: "LCK"
+  };
+  var MEDIA_EXTS = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif", "mp4", "mp3", "wav", "mov", "webm"]);
+  var IMG_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>';
+  function extOf(name) {
+    const dot = name.lastIndexOf(".");
+    return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+  }
+  function iconHtml(name, type) {
+    if (type === "dir") return '<span class="ck-ft-icon ck-ft-i-dir">' + FOLDER_SVG + "</span>";
+    const ext = extOf(name);
+    if (MEDIA_EXTS.has(ext)) return '<span class="ck-ft-icon ck-ft-i-media">' + IMG_SVG + "</span>";
+    const badge = EXT_BADGE[ext];
+    if (badge) return '<span class="ck-ft-icon ck-ft-badge ' + colorClass(name, "file") + '">' + badge + "</span>";
+    return '<span class="ck-ft-icon ck-ft-i-file">' + FILE_SVG + "</span>";
+  }
+  function colorClass(name, type) {
+    if (type === "dir") return "";
+    const ext = extOf(name);
+    return EXT_COLOR[ext] ? "ck-ft-c-" + EXT_COLOR[ext] : "ck-ft-c-file";
+  }
+  function nameClass(name, type) {
+    return type === "dir" ? "ck-ft-name" : "ck-ft-name " + colorClass(name, type);
+  }
+  function atBtn(path) {
+    return '<span class="ck-ft-at" data-at="' + escapeAttr(path) + '" title="\u8FFD\u52A0 @' + escapeAttr(path) + ' \u5230\u8F93\u5165\u6846">@</span>';
+  }
+  function renderNodes(nodes, depth) {
+    let html = "";
+    for (const n of nodes) {
+      const pad = 6 + depth * 14;
+      if (n.type === "dir") {
+        const open = expanded.has(n.path);
+        html += '<div class="ck-ft-row ck-ft-dir' + (open ? " open" : "") + '" data-path="' + escapeAttr(n.path) + '" style="padding-left:' + pad + 'px"><span class="ck-ft-caret">' + CARET_SVG + "</span>" + iconHtml(n.name, "dir") + '<span class="' + nameClass(n.name, "dir") + '">' + escapeHtml(n.name) + "</span>" + atBtn(n.path) + "</div>";
+        if (open && n.children) html += renderNodes(n.children, depth + 1);
+      } else {
+        html += '<div class="ck-ft-row ck-ft-file" data-path="' + escapeAttr(n.path) + '" title="' + escapeAttr(n.path) + '" style="padding-left:' + pad + 'px"><span class="ck-ft-caret"></span>' + iconHtml(n.name, "file") + '<span class="' + nameClass(n.name, "file") + '">' + escapeHtml(n.name) + "</span>" + atBtn(n.path) + "</div>";
+      }
+    }
+    return html;
+  }
+  function flatten(nodes, out) {
+    for (const n of nodes) {
+      out.push(n);
+      if (n.children) flatten(n.children, out);
+    }
+    return out;
+  }
+  function renderSearch(kw) {
+    const all = flatten(cachedTree, []);
+    const low = kw.toLowerCase();
+    const matched = all.filter((n) => n.path.toLowerCase().includes(low));
+    if (matched.length === 0) return '<div class="ck-list-empty">\u65E0\u5339\u914D\u7ED3\u679C</div>';
+    matched.sort((a, b) => {
+      if (a.type !== b.type) return a.type === "file" ? -1 : 1;
+      return a.path.localeCompare(b.path);
+    });
+    return matched.slice(0, 500).map((n) => {
+      const cls = n.type === "dir" ? "ck-ft-dir" : "ck-ft-file";
+      return '<div class="ck-ft-row ' + cls + '" data-path="' + escapeAttr(n.path) + '" title="' + escapeAttr(n.path) + '">' + iconHtml(n.name, n.type) + '<span class="' + nameClass(n.name, n.type) + '">' + highlight(n.name, kw) + '</span><span class="ck-ft-path">' + highlight(n.path, kw) + "</span>" + atBtn(n.path) + "</div>";
+    }).join("") + (matched.length > 500 ? '<div class="ck-ft-truncated">\uFF08\u7ED3\u679C\u8FC7\u591A\uFF0C\u4EC5\u663E\u793A\u524D 500 \u9879\uFF09</div>' : "");
+  }
+  function bindRowEvents(listEl) {
+    listEl.querySelectorAll(".ck-ft-at").forEach((el) => {
+      el.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const p = el.dataset.at;
+        if (!p || !api.appendSnippet) return;
+        try {
+          await api.appendSnippet("@" + p);
+        } catch (_) {
+        }
+      });
+    });
+    listEl.querySelectorAll(".ck-ft-dir").forEach((el) => {
+      el.addEventListener("click", () => {
+        const p = el.dataset.path;
+        if (expanded.has(p)) expanded.delete(p);
+        else expanded.add(p);
+        loadFiles();
+      });
+    });
+  }
+  function currentKeyword() {
+    const s = document.getElementById("ft-search");
+    return s ? String(s.value || "").trim() : "";
+  }
+  async function loadFiles() {
+    const listEl = document.getElementById("ft-list");
+    if (!listEl || !api.listProjectTree) return;
+    try {
+      const r = await api.listProjectTree();
+      if (!r || !r.success) {
+        listEl.innerHTML = '<div class="ck-list-empty">' + escapeHtml(r && r.error || "\u52A0\u8F7D\u5931\u8D25") + "</div>";
+        return;
+      }
+      const rootEl = document.getElementById("ft-root");
+      if (rootEl && r.root) {
+        const base = String(r.root).replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "\u9879\u76EE\u6587\u4EF6";
+        rootEl.textContent = base;
+        rootEl.title = r.root;
+      }
+      cachedTree = r.tree || [];
+      cachedTruncated = !!r.truncated;
+      renderList(listEl);
+    } catch (_) {
+      listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
+    }
+  }
+  function renderList(listEl) {
+    const kw = currentKeyword();
+    if (kw) {
+      listEl.innerHTML = renderSearch(kw);
+    } else {
+      if (cachedTree.length === 0) {
+        listEl.innerHTML = '<div class="ck-list-empty">\u7A7A\u76EE\u5F55</div>';
+        return;
+      }
+      listEl.innerHTML = renderNodes(cachedTree, 0) + (cachedTruncated ? '<div class="ck-ft-truncated">\uFF08\u8282\u70B9\u8FC7\u591A\uFF0C\u5DF2\u622A\u65AD\u663E\u793A\uFF09</div>' : "");
+    }
+    bindRowEvents(listEl);
+  }
+  document.getElementById("ft-refresh")?.addEventListener("click", loadFiles);
+  {
+    const searchEl = document.getElementById("ft-search");
+    if (searchEl) {
+      let timer = null;
+      searchEl.addEventListener("input", () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          const listEl = document.getElementById("ft-list");
+          if (listEl) renderList(listEl);
+        }, 150);
+      });
+      searchEl.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          searchEl.value = "";
+          const listEl = document.getElementById("ft-list");
+          if (listEl) renderList(listEl);
+        }
+      });
+    }
+  }
+  if (api.onProjectDir) {
+    api.onProjectDir(() => {
+      expanded.clear();
+      loadFiles();
     });
   }
 
@@ -1911,7 +2578,6 @@
             } catch (_) {
             }
           }
-          addRecent("snippet", name, { payload: it && it.payload, autoSend: it && it.autoSend });
         } else {
           if (api.appendSnippet) {
             try {
@@ -1919,7 +2585,6 @@
             } catch (_) {
             }
           }
-          addRecent(type, name);
         }
       });
     });
@@ -2733,8 +3398,315 @@
     }
   });
 
+  // src/ui/shell/scripts/pages/conversations.ts
+  var harnessBusy = false;
+  function applyBusyState() {
+    const listEl = document.getElementById("conv-list");
+    if (!listEl) return;
+    listEl.querySelectorAll(".ck-conv-item").forEach((el) => {
+      el.classList.toggle("ck-conv-disabled", harnessBusy);
+    });
+  }
+  async function loadConversations(retainOnEmpty) {
+    const listEl = document.getElementById("conv-list");
+    if (!listEl || !api.listWebSessions) return;
+    let res = null;
+    try {
+      res = await api.listWebSessions();
+    } catch (_) {
+      res = null;
+    }
+    const sessions = res && res.success && Array.isArray(res.sessions) ? res.sessions : [];
+    const curUrl = res && res.currentUrl || "";
+    if (!sessions.length) {
+      if (retainOnEmpty) return;
+      if (listEl.querySelector(".ck-conv-item")) return;
+      listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u4E2D\u2026\uFF08\u82E5\u6301\u7EED\u4E3A\u7A7A\uFF0C\u8BF7\u70B9\u5237\u65B0\uFF09</div>';
+      return;
+    }
+    listEl.innerHTML = sessions.map((s) => {
+      const active = s.href === curUrl ? " ck-conv-active" : "";
+      return '<div class="ck-conv-item' + active + '" data-url="' + escapeAttr(s.href) + '" title="' + escapeAttr(s.title) + '"><span class="ck-conv-title">' + escapeHtml(s.title) + "</span></div>";
+    }).join("");
+    listEl.querySelectorAll(".ck-conv-item").forEach((el) => {
+      el.addEventListener("click", () => {
+        if (harnessBusy) return;
+        const url = el.getAttribute("data-url");
+        if (url && api.navigateWebSession) {
+          api.navigateWebSession(url);
+          listEl.querySelectorAll(".ck-conv-item").forEach((x) => x.classList.remove("ck-conv-active"));
+          el.classList.add("ck-conv-active");
+        }
+      });
+    });
+    applyBusyState();
+  }
+  function reloadConversationsAfterNav() {
+    loadConversations(true);
+    setTimeout(() => loadConversations(true), 800);
+    setTimeout(() => loadConversations(true), 1800);
+    setTimeout(() => loadConversations(false), 3200);
+  }
+  document.getElementById("conv-refresh")?.addEventListener("click", () => loadConversations());
+  document.getElementById("conv-new")?.addEventListener("click", () => {
+    if (api.newWebConversation) api.newWebConversation().then(() => reloadConversationsAfterNav());
+  });
+  if (api.onHarnessBusy) api.onHarnessBusy((busy) => {
+    harnessBusy = busy;
+    applyBusyState();
+  });
+  if (api.onWebUrlChanged) api.onWebUrlChanged(() => {
+    const panel = document.querySelector('.ck-tab[data-panel="conversations"]');
+    if (panel && panel.classList.contains("ck-tab-active")) {
+      try {
+        reloadConversationsAfterNav();
+      } catch (_) {
+      }
+    }
+  });
+
+  // src/ui/shell/scripts/pages/plugins.ts
+  var pluginMarketItems = [];
+  var pluginMarketNotice = "";
+  var pluginInstalled = {};
+  var pluginRemote = {};
+  var ICON_INSTALL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>';
+  var ICON_UPDATE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>';
+  var ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>';
+  async function loadPlugins() {
+    await loadInstalledPlugins();
+    await loadPluginMarket(false);
+  }
+  function pluginContribSummary(c) {
+    if (!c) return "";
+    const parts = [];
+    if (c.skills && c.skills.length) parts.push("\u6280\u80FD " + c.skills.length);
+    if (c.agents && c.agents.length) parts.push("\u4EE3\u7406 " + c.agents.length);
+    if (c.rules && c.rules.length) parts.push("\u89C4\u5219 " + c.rules.length);
+    if (c.mcp) parts.push("MCP");
+    if (c.providers && c.providers.length) parts.push("\u53EF\u6267\u884C " + c.providers.length);
+    return parts.join(" \xB7 ");
+  }
+  function pluginHasExec(c) {
+    if (!c) return false;
+    return !!(c.providers && c.providers.length > 0 || c.mcp);
+  }
+  function isNewerVersion(a, b) {
+    if (!a || !b) return false;
+    const pa = String(a).split(".").map((x) => parseInt(x, 10) || 0);
+    const pb = String(b).split(".").map((x) => parseInt(x, 10) || 0);
+    const n = Math.max(pa.length, pb.length);
+    for (let i = 0; i < n; i++) {
+      const x = pa[i] || 0, y = pb[i] || 0;
+      if (x > y) return true;
+      if (x < y) return false;
+    }
+    return false;
+  }
+  function pluginUpdateState(it) {
+    const inst = pluginInstalled[it.id];
+    if (!inst) return "none";
+    const remote = pluginRemote[it.id];
+    if (remote && remote.ok && remote.version) {
+      return isNewerVersion(remote.version, inst.version) ? "update" : "installed";
+    }
+    if (it.pushedAt && inst.installedAt) {
+      const pushed = Date.parse(it.pushedAt);
+      const installed = Date.parse(inst.installedAt);
+      if (Number.isFinite(pushed) && Number.isFinite(installed) && pushed > installed) return "update";
+    }
+    return "installed";
+  }
+  function pluginMetaHtml(pairs) {
+    const cells = [];
+    pairs.forEach((p) => {
+      if (p) cells.push("<span>" + p + "</span>");
+    });
+    if (!cells.length) return "";
+    return '<div class="ck-plugin-meta">' + cells.join('<span class="sep">\xB7</span>') + "</div>";
+  }
+  async function loadInstalledPlugins() {
+    const listEl = document.getElementById("plugin-installed-list");
+    if (!listEl || !api.listInstalledPlugins) return;
+    try {
+      const r = await api.listInstalledPlugins();
+      const plugins = r && r.success ? r.plugins : [];
+      if (!plugins.length) {
+        listEl.innerHTML = '<div class="ck-list-empty">\u8FD8\u6CA1\u6709\u5B89\u88C5\u63D2\u4EF6<br>\u4ECE\u4E0B\u65B9\u5E02\u573A\u5B89\u88C5</div>';
+        return;
+      }
+      listEl.innerHTML = plugins.map((p) => {
+        const hasExec = pluginHasExec(p.contributes);
+        const swTitle = hasExec ? "\u542F\u7528\u540E\uFF1A\u6280\u80FD/\u4EE3\u7406/\u89C4\u5219 + MCP + \u53EF\u6267\u884C\u5185\u5BB9\u5168\u90E8\u751F\u6548" : "\u542F\u7528\u540E\uFF1A\u6280\u80FD/\u4EE3\u7406/\u89C4\u5219\u5168\u90E8\u751F\u6548";
+        const sw = '<label class="ck-switch" title="' + escapeAttr(swTitle) + '"><input type="checkbox" data-toggle="' + escapeAttr(p.id) + '"' + (p.enabled ? " checked" : "") + ' /><span class="ck-switch-track"></span></label>';
+        const meta = [];
+        if (p.version) meta.push("v" + escapeHtml(p.version));
+        if (p.repo) meta.push(escapeHtml(p.repo));
+        const contrib = pluginContribSummary(p.contributes);
+        if (contrib) meta.push(escapeHtml(contrib));
+        return '<div class="ck-plugin-item" data-plugin="' + escapeAttr(p.id) + '"><div class="ck-plugin-head"><span class="ck-plugin-name">' + escapeHtml(p.name || p.id) + "</span>" + (hasExec ? '<span class="ck-plugin-badge update" title="\u542B\u53EF\u6267\u884C\u5185\u5BB9">\u542B\u53EF\u6267\u884C</span>' : "") + '<div class="ck-plugin-switch-row"><span class="ck-plugin-switch-label">' + (p.enabled ? "\u5DF2\u542F\u7528" : "\u5DF2\u7981\u7528") + "</span>" + sw + '</div><div class="ck-plugin-actions"><button class="ck-snip-icon-btn danger" data-uninstall="' + escapeAttr(p.id) + '" title="\u5378\u8F7D">' + ICON_TRASH + '</button></div></div><div class="ck-plugin-desc">' + escapeHtml(p.description || "\uFF08\u65E0\u63CF\u8FF0\uFF09") + "</div>" + pluginMetaHtml(meta) + "</div>";
+      }).join("");
+      listEl.querySelectorAll("[data-uninstall]").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const id = btn.dataset.uninstall;
+          if (!await ckConfirm("\u786E\u5B9A\u5378\u8F7D\u63D2\u4EF6\u300C" + id + "\u300D\uFF1F\n\n\u63D2\u4EF6\u76EE\u5F55\u4E0E\u5176\u542F\u7528\u72B6\u6001\u90FD\u4F1A\u88AB\u5220\u9664\u3002", "\u5378\u8F7D\u63D2\u4EF6")) return;
+          if (!api.pluginUninstall) return;
+          const r2 = await api.pluginUninstall(id);
+          if (!r2 || !r2.success) {
+            await ckAlert(r2 && r2.error || "\u5378\u8F7D\u5931\u8D25");
+            return;
+          }
+          await loadPlugins();
+        });
+      });
+      listEl.querySelectorAll("[data-toggle]").forEach((input2) => {
+        input2.addEventListener("change", async () => {
+          const id = input2.dataset.toggle;
+          const p = plugins.filter((x) => x.id === id)[0];
+          const turnOn = input2.checked;
+          if (turnOn && p && pluginHasExec(p.contributes)) {
+            const lines = (p.contributes.providers || []).map((f) => {
+              return "\xB7 providers/" + f + "\uFF08\u4F1A\u88AB require \u6267\u884C\uFF09";
+            });
+            if (p.contributes.mcp) lines.push("\xB7 mcp.json \u91CC\u7684 MCP server\uFF08\u4F1A\u542F\u52A8\u5B50\u8FDB\u7A0B\uFF09");
+            const ok = await ckConfirm(
+              "\u542F\u7528\u300C" + (p.name || id) + "\u300D\uFF1F\n\n\u8BE5\u63D2\u4EF6\u542B\u53EF\u6267\u884C\u5185\u5BB9\uFF0C\u542F\u7528\u540E\u4F1A\u5728\u672C\u673A\u8FD0\u884C\u7B2C\u4E09\u65B9\u4EE3\u7801\uFF1A\n\n" + lines.join("\n"),
+              "\u542F\u7528\u63D2\u4EF6"
+            );
+            if (!ok) {
+              input2.checked = false;
+              return;
+            }
+          }
+          if (!api.pluginSetEnabled) return;
+          const r2 = await api.pluginSetEnabled(id, turnOn);
+          if (!r2 || !r2.success) {
+            input2.checked = !turnOn;
+            await ckAlert(r2 && r2.error || "\u64CD\u4F5C\u5931\u8D25");
+            return;
+          }
+          await loadInstalledPlugins();
+        });
+      });
+    } catch (_) {
+      listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
+    }
+  }
+  function renderPluginMarket() {
+    const listEl = document.getElementById("plugin-market-list");
+    if (!listEl) return;
+    const notice = pluginMarketNotice ? '<div class="ck-list-empty">' + escapeHtml(pluginMarketNotice) + "</div>" : "";
+    if (!pluginMarketItems.length) {
+      listEl.innerHTML = notice + '<div class="ck-list-empty">\u6682\u65E0\u63D2\u4EF6<br><br>\u7ED9\u4F60\u7684\u4ED3\u5E93\u6253\u4E0A <b>cuckoo-plugin</b> topic\uFF0C<br>\u5B83\u5C31\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC</div>';
+      return;
+    }
+    listEl.innerHTML = notice + pluginMarketItems.map(marketCardHtml).join("");
+    listEl.querySelectorAll("[data-install]").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.install;
+        const it = pluginMarketItems.filter((x) => x.id === id)[0];
+        if (it) await installPluginFromMarket(it, btn.dataset.upgrade === "1");
+      });
+    });
+  }
+  function marketCardHtml(it) {
+    const state = pluginUpdateState(it);
+    const remote = pluginRemote[it.id];
+    let badges = "";
+    if (it.archived) badges += '<span class="ck-plugin-badge archived" title="\u4ED3\u5E93\u5DF2\u5F52\u6863\uFF0C\u53EF\u80FD\u4E0D\u518D\u7EF4\u62A4">\u5DF2\u5F52\u6863</span>';
+    if (state === "installed") badges += '<span class="ck-plugin-badge on">\u5DF2\u5B89\u88C5</span>';
+    if (state === "update") badges += '<span class="ck-plugin-badge update">\u53EF\u66F4\u65B0</span>';
+    let action = "";
+    if (state === "none") {
+      action = '<button class="ck-snip-icon-btn" data-install="' + escapeAttr(it.id) + '" title="\u5B89\u88C5">' + ICON_INSTALL + "</button>";
+    } else if (state === "update") {
+      action = '<button class="ck-snip-icon-btn" data-install="' + escapeAttr(it.id) + '" data-upgrade="1" title="\u66F4\u65B0\u5230\u6700\u65B0">' + ICON_UPDATE + "</button>";
+    }
+    let req = "";
+    if (remote && remote.ok) {
+      const bits = [];
+      if (remote.version) bits.push("\u63D2\u4EF6 v" + escapeHtml(remote.version));
+      if (remote.minAppVersion) bits.push("\u9700\u8981 Cuckoo Code \u2265 " + escapeHtml(remote.minAppVersion));
+      if (bits.length) req = '<div class="ck-plugin-req">' + bits.join(" \xB7 ") + "</div>";
+    } else if (remote && remote.error) {
+      req = '<div class="ck-plugin-req err">\u8BFB\u4E0D\u5230 plugin.json\uFF1A' + escapeHtml(remote.error) + "</div>";
+    }
+    return '<div class="ck-plugin-item" data-repo="' + escapeAttr(it.id) + '"><div class="ck-plugin-head"><span class="ck-plugin-name" title="' + escapeAttr(it.id) + '">' + escapeHtml(it.id) + "</span>" + badges + '<div class="ck-plugin-actions">' + action + '</div></div><div class="ck-plugin-desc">' + escapeHtml(it.description || "\uFF08\u65E0\u7B80\u4ECB\uFF09") + "</div>" + pluginMetaHtml([
+      it.language ? escapeHtml(it.language) : "",
+      it.stars ? "\u2605 " + it.stars : "",
+      it.license ? escapeHtml(it.license) : "",
+      (it.pushedAt || it.updatedAt || "").slice(0, 10)
+    ]) + req + "</div>";
+  }
+  async function loadPluginMarket(force) {
+    const listEl = document.getElementById("plugin-market-list");
+    if (!listEl || !api.pluginMarketList) return;
+    listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u4E2D\u2026</div>';
+    try {
+      const r = await api.pluginMarketList({ force: !!force });
+      if (!r || !r.success) {
+        pluginMarketItems = [];
+        pluginMarketNotice = r && r.error || "\u52A0\u8F7D\u5931\u8D25";
+        renderPluginMarket();
+        return;
+      }
+      pluginMarketItems = r.items || [];
+      pluginInstalled = r && r.installed || {};
+      pluginMarketNotice = r && r.error || "";
+      renderPluginMarket();
+      loadRemoteManifests();
+    } catch (_) {
+      listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
+    }
+  }
+  async function loadRemoteManifests() {
+    if (!api.pluginMarketRemote) return;
+    const targets = pluginMarketItems.filter((it) => it.defaultBranch).map((it) => ({ repo: it.id, branch: it.defaultBranch }));
+    if (!targets.length) return;
+    try {
+      const r = await api.pluginMarketRemote(targets);
+      if (!r || !r.success) return;
+      pluginRemote = r.remote || {};
+      renderPluginMarket();
+    } catch (_) {
+    }
+  }
+  async function installPluginFromMarket(item, isUpgrade) {
+    const remote = pluginRemote[item.id];
+    const what = isUpgrade ? "\u66F4\u65B0" : "\u5B89\u88C5";
+    const lines = [item.id];
+    if (item.description) lines.push(item.description);
+    if (remote && remote.ok) {
+      if (remote.version) lines.push("\u7248\u672C\uFF1Av" + remote.version);
+      if (remote.minAppVersion) lines.push("\u9700\u8981 Cuckoo Code \u2265 " + remote.minAppVersion);
+    }
+    const ok = await ckConfirm(
+      "\u786E\u5B9A" + what + "\u8BE5\u63D2\u4EF6\uFF1F\n\n" + lines.join("\n") + "\n\n\u88C5\u597D\u540E\u9ED8\u8BA4\u5904\u4E8E\u7981\u7528\u72B6\u6001\uFF0C\u9700\u5728\u300C\u5DF2\u5B89\u88C5\u300D\u5904\u6253\u5F00\u5F00\u5173\u624D\u751F\u6548\u3002",
+      what + "\u63D2\u4EF6"
+    );
+    if (!ok) return;
+    if (!api.pluginInstall) return;
+    const r = await api.pluginInstall(item.id, item.defaultBranch, !!isUpgrade);
+    if (!r || !r.success) {
+      await ckAlert(r && r.error || what + "\u5931\u8D25", what + "\u5931\u8D25");
+      return;
+    }
+    const msg = (r.upgraded ? "\u5DF2\u66F4\u65B0\uFF1A" : "\u5DF2\u5B89\u88C5\uFF1A") + (r.plugin && r.plugin.name || item.id);
+    await ckAlert(msg + "\n\n\u9ED8\u8BA4\u7981\u7528\u3002\u5728\u300C\u5DF2\u5B89\u88C5\u300D\u5904\u6253\u5F00\u5F00\u5173\u540E\uFF0C\u5B83\u7684\u6280\u80FD / \u4EE3\u7406 / \u89C4\u5219 / MCP / \u53EF\u6267\u884C\u5185\u5BB9\u624D\u4F1A\u751F\u6548\u3002", r.upgraded ? "\u66F4\u65B0\u5B8C\u6210" : "\u5B89\u88C5\u5B8C\u6210");
+    await loadPlugins();
+  }
+  document.getElementById("plugin-refresh")?.addEventListener("click", () => loadPluginMarket(true));
+  document.getElementById("plugin-open-dir")?.addEventListener("click", async () => {
+    if (!api.pluginOpenDir) return;
+    const r = await api.pluginOpenDir();
+    if (r && !r.success) await ckAlert(r.error || "\u6253\u5F00\u76EE\u5F55\u5931\u8D25");
+  });
+
   // src/ui/shell/scripts/main.ts
   registerTab("workspaces", loadWorkspaces);
+  registerTab("files", loadFiles);
   registerTab("snippets", loadSnippets);
   registerTab("skills", loadSkills);
   registerTab("agents", loadAgents);
@@ -2744,6 +3716,8 @@
   registerTab("feishu", loadFeishu);
   registerTab("windows", renderWindowList);
   registerTab("settings", loadSettings);
+  registerTab("conversations", loadConversations);
+  registerTab("plugins", loadPlugins);
   try {
     loadWorkspaces();
   } catch (_) {

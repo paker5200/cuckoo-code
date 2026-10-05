@@ -23,8 +23,8 @@ function openSettings() {
     setVal('cuckoo-retry-delay-min', msToSec(localStorage.getItem('cuckoo-retry-delay-min') || '4000', 4));
     setVal('cuckoo-retry-delay-max', msToSec(localStorage.getItem('cuckoo-retry-delay-max') || '10000', 10));
     setVal('cuckoo-retry-count', localStorage.getItem('cuckoo-retry-count') || '10');
-    setVal('cuckoo-retry-429-delay', msToSec(localStorage.getItem('cuckoo-retry-429-delay') || '60000', 60));
-    setVal('cuckoo-retry-429-count', localStorage.getItem('cuckoo-retry-429-count') || '20');
+    setVal('cuckoo-retry-429-delay', msToSec(localStorage.getItem('cuckoo-retry-429-delay') || '120000', 120));
+    setVal('cuckoo-retry-429-count', localStorage.getItem('cuckoo-retry-429-count') || '40');
     setVal('cuckoo-retry-prompt', localStorage.getItem('cuckoo-retry-prompt') || '刚才的回复似乎中断了，请重新完整回答上一个问题。');
     setVal('cuckoo-xhr-idle-timeout', msToSec(localStorage.getItem('cuckoo-xhr-idle-timeout') || '300000', 300));
     setVal('cuckoo-watchdog-prompt', localStorage.getItem('cuckoo-watchdog-prompt') || '请继续');
@@ -143,6 +143,7 @@ interface SettingsData {
   sendDelayMax: number;
   attachDelayMin: number;
   attachDelayMax: number;
+  goalMaxIterations: number;
 }
 
 /** 读取当前设置（UI 单位：秒） */
@@ -161,8 +162,8 @@ function getSettingsData(): SettingsData {
     retryDelayMin: sec(lsGet('cuckoo-retry-delay-min'), 4),
     retryDelayMax: sec(lsGet('cuckoo-retry-delay-max'), 10),
     retryCount: int(lsGet('cuckoo-retry-count'), 10),
-    retry429Delay: sec(lsGet('cuckoo-retry-429-delay'), 60),
-    retry429Count: int(lsGet('cuckoo-retry-429-count'), 20),
+    retry429Delay: sec(lsGet('cuckoo-retry-429-delay'), 120),
+    retry429Count: int(lsGet('cuckoo-retry-429-count'), 40),
     retryPrompt: lsGet('cuckoo-retry-prompt') || '刚才的回复似乎中断了，请重新完整回答上一个问题。',
     xhrIdleTimeout: sec(lsGet('cuckoo-xhr-idle-timeout'), 300),
     watchdogPrompt: lsGet('cuckoo-watchdog-prompt') || '请继续',
@@ -171,6 +172,7 @@ function getSettingsData(): SettingsData {
     sendDelayMax: sec(lsGet('cuckoo-send-delay-max'), 4),
     attachDelayMin: sec(lsGet('cuckoo-attach-delay-min'), 0.5),
     attachDelayMax: sec(lsGet('cuckoo-attach-delay-max'), 1),
+    goalMaxIterations: int(lsGet('cuckoo-goal-max-iterations'), 50),
   };
 }
 
@@ -207,6 +209,8 @@ function applySettingsData(data: any): { success: boolean; error?: string } {
   if (!Number.isFinite(amin) || amin < 0) return { success: false, error: '附件上传间隔最小值必须是非负数字' };
   if (!Number.isFinite(amax) || amax < amin) return { success: false, error: '附件上传间隔最大值不能小于最小值' };
   if (amax > 60000) return { success: false, error: '附件上传间隔最大值不能超过 60 秒' };
+  const goalMax = parseInt(data && data.goalMaxIterations, 10);
+  if (Number.isNaN(goalMax) || goalMax <= 0) return { success: false, error: '目标最大迭代次数必须是正整数' };
 
   try {
     localStorage.setItem('cuckoo-retry-enabled', (data && data.retryEnabled) ? '1' : '0');
@@ -223,6 +227,7 @@ function applySettingsData(data: any): { success: boolean; error?: string } {
     localStorage.setItem('cuckoo-send-delay-max', String(smax));
     localStorage.setItem('cuckoo-attach-delay-min', String(amin));
     localStorage.setItem('cuckoo-attach-delay-max', String(amax));
+    localStorage.setItem('cuckoo-goal-max-iterations', String(goalMax));
   } catch (err: any) {
     return { success: false, error: '写入失败: ' + err.message };
   }
@@ -239,6 +244,7 @@ function resetSettingsData(): SettingsData {
     'cuckoo-retry-prompt', 'cuckoo-xhr-idle-timeout', 'cuckoo-watchdog-prompt',
     'cuckoo-watchdog-count', 'cuckoo-send-delay-min', 'cuckoo-send-delay-max',
     'cuckoo-attach-delay-min', 'cuckoo-attach-delay-max',
+    'cuckoo-goal-max-iterations',
   ];
   try { for (const k of KEYS) localStorage.removeItem(k); } catch (_) {}
   state.sendDelayMin = 2000;

@@ -12,6 +12,7 @@ import { scanSkills } from '../../skills/index.js';
 import { buildSkillsSection } from '../../skills/prompt.js';
 import { scanAgents } from '../../agents/index.js';
 import { buildAgentsSection } from '../../agents/prompt.js';
+import { getPluginScanRoots } from '../../plugins/roots.js';
 import { parseFrontmatter } from '../../skills/frontmatter.js';
 
 const require = createRequire(import.meta.url);
@@ -19,10 +20,10 @@ const { ipcMain, shell } = require('electron');
 
 function registerProjectIpc(): void {
   // 初始化项目
-  ipcMain.handle('init-project', async (event: any, { skipPrompt = false, projectDir = null, isCompaction = false, extraPrompt = '', noDialog = false }: any = {}) => {
+  ipcMain.handle('init-project', async (event: any, { skipPrompt = false, projectDir = null, isCompaction = false, extraPrompt = '', noDialog = false, parentSessionId = null }: any = {}) => {
     const ctx = windowState.getContextByWebContents(event.sender);
     const windowId = ctx && ctx.win ? ctx.win.id : null;
-    const result = await initProject(skipPrompt, ctx, projectDir, isCompaction, extraPrompt || '', !!noDialog);
+    const result = await initProject(skipPrompt, ctx, projectDir, isCompaction, extraPrompt || '', !!noDialog, parentSessionId);
     // 项目目录可能变化：释放该窗口对"旧项目"的 MCP 连接引用
     if (windowId !== null) {
       try {
@@ -39,7 +40,7 @@ function registerProjectIpc(): void {
       const ctx = windowState.getContextByWebContents(event.sender);
       const store = ctx ? ctx.sessionStore : null;
       const projectDir = store ? store.state.selectedProjectDir : null;
-      const skills = scanSkills(projectDir || null);
+      const skills = scanSkills(projectDir || null, getPluginScanRoots().skillDirs);
       return {
         success: true,
         skills: skills.map((s: any) => ({
@@ -191,8 +192,8 @@ function registerProjectIpc(): void {
       const ctx = windowState.getContextByWebContents(event.sender);
       const store = ctx ? ctx.sessionStore : null;
       const projectDir = store ? store.state.selectedProjectDir : null;
-      const skills = scanSkills(projectDir || null);
-      const agents = scanAgents(projectDir || null);
+      const skills = scanSkills(projectDir || null, getPluginScanRoots().skillDirs);
+      const agents = scanAgents(projectDir || null, getPluginScanRoots().agentDirs);
       // 合并：技能章节 + 代理章节（各自无内容时返回空串）
       const sections = [buildSkillsSection(skills), buildAgentsSection(agents)].filter((s) => s && s.trim());
       const section = sections.join('\n');

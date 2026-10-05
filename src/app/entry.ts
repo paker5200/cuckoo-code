@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Cuckoo Code 主进程入口（多窗口多 profile 版）
  * 由项目根目录 main.js 薄壳加载。
  */
@@ -50,7 +50,9 @@ import { registerIpcHandlers } from './ipc/index.js';
 import { buildChromeUserAgent } from '../infra/user-agent.js';
 import { initFeishu } from './ipc/feishu.js';
 import { injectSubagentDeps, runAgent as runAgentImpl } from './subagent.js';
-import { injectAgentRunner } from '../tools/impl/run-agent.js';
+import { injectAgentRunner, injectSubagentChecker } from '../tools/impl/run-agent.js';
+import { injectGoalDonePusher } from '../tools/impl/goal-done.js';
+import { isSubagentWindow, pushGoalDone } from './goal.js';
 import { injectSessionTitleSetter } from '../tools/impl/name-conversation.js';
 import { pushUrlState } from './ipc/shell.js';
 import { pushHarnessState } from './ipc/harness.js';
@@ -97,7 +99,7 @@ function createWindow(profile: any) {
   const profileData = profile || profileManager.getDefaultProfile();
   const provider = getProvider(profileData.providerId) || null;
   const storeDir = app.getPath('userData');
-  const sessionStore = createSessionStore(profileData.id, storeDir, windowState, { noPersist: !!profileData.isSubagent });
+  const sessionStore = createSessionStore(profileData.id, storeDir, windowState);
   const hasExplicitProfile = !!profile;
   // providerId 已确定 → 直接打开；未确定 → 显示平台选择页
   const providerChosen = !!profileData.providerId;
@@ -190,6 +192,7 @@ function createWindow(profile: any) {
     hv.webContents.loadFile(resolveSrc('ui/harness.html'));
     hv.webContents.on('did-finish-load', () => {
       console.log('[Cuckoo Harness] 页面加载完成');
+      try { notifyHarnessSession(view.webContents.getURL()); } catch (_) {}
     });
     hv.webContents.on('did-fail-load', (_e: any, code: any, desc: any) => {
       console.error('[Cuckoo Harness] 页面加载失败: ' + code + ' ' + desc);
@@ -229,7 +232,7 @@ function createWindow(profile: any) {
       width: Math.max(0, w - sbw),
       height: Math.max(0, h - tbh - STATUS_HEIGHT),
     });
-    // harness 只覆盖"网页区域"（与 AI view 同位置），保留地址栏/状态条/侧边栏；隐藏时尺寸归零
+    // harness 覆盖整个"网页区域"（与 AI view 同位置）
     const hv = (mainWindow as any).__ckHarnessView;
     if (hv && !hv.webContents.isDestroyed()) {
       if ((mainWindow as any).__ckHarnessVisible) {
@@ -259,8 +262,21 @@ function createWindow(profile: any) {
   const winSession = view.webContents.session;
 
   // 注册窗口上下文（记录 providerId，未确定时为空字符串）
-  windowState.addWindow(mainWindow, profileData.id, profileData.providerId || '', sessionStore, view);
+  windowState.addWindow(mainWindow, profileData.id, profileData.providerId || '', sessionStore, view, !!profileData.isSubagent);
   sessionsToFlush.add(winSession);
+
+  // 通知 harness 当前会话已变化（用于按会话隔离历史/目标/计划）
+  const notifyHarnessSession = (url: string) => {
+    try {
+      const c: any = windowState.getContextByWebContents(view.webContents);
+      const hv = c && c.harnessView;
+      if (!hv || hv.webContents.isDestroyed()) return; // 懒加载下 view 可能尚未创建
+      let sid = '';
+      const provider = c.providerId ? getProvider(c.providerId) : null;
+      if (provider && typeof provider.extractSessionId === 'function') sid = provider.extractSessionId(url) || '';
+      hv.webContents.send('harness-event', { type: 'session-changed', sessionId: sid });
+    } catch (_) { /* ignore */ }
+  };
 
   // 切换纯净模式（同窗口）：true=显示 harness，false=显示网页
   (mainWindow as any).__ckToggleHarness = (show?: boolean) => {
@@ -275,12 +291,9 @@ function createWindow(profile: any) {
     } else {
       layoutView();
     }
-    // 通知 AI 页面：纯净模式开/关（bridge 据此决定是否处理上报，关闭时零开销）
-    try {
-      if (view && view.webContents && !view.webContents.isDestroyed()) {
-        view.webContents.send('harness-mode', { enabled: next });
-      }
-    } catch (_) {}
+    // 注：不再向 AI 页面下发"纯净模式开关"。bridge 侧上报已不设门控
+    //（门控一旦判断错就整片静默丢弃，曾导致界面空白 + 状态卡死）；
+    // 主进程在没有 harness 视图时自会丢弃事件，无需 bridge 配合。
     // 通知壳页面：更新「纯净模式/原版模式」按钮
     try { mainWindow.webContents.send('shell-harness-mode', { harness: next }); } catch (_) {}
   };
@@ -365,6 +378,9 @@ function createWindow(profile: any) {
     pushUrlState(view);
     // 通知 AI 页面（overlay/看门狗）URL 已变，替代原先的渲染进程轮询
     try { view.webContents.send('cuckoo-url-changed', { url }); } catch (_) {}
+    notifyHarnessSession(url);
+    // 通知壳页面：网页 URL 变了 → 刷新对话列表高亮
+    try { mainWindow.webContents.send('shell-web-url-changed', { url }); } catch (_) {}
     // 通知 harness 页面刷新"需初始化项目"状态（首页 ↔ 会话页）
     try { pushHarnessState(windowState.getContextByWebContents(view.webContents)); } catch (_) {}
     autoConnectMcp();
@@ -375,6 +391,8 @@ function createWindow(profile: any) {
     pushUrlState(view);
     // SPA 路由（pushState）变化也在此触发，替代轮询
     try { view.webContents.send('cuckoo-url-changed', { url }); } catch (_) {}
+    notifyHarnessSession(url);
+    try { mainWindow.webContents.send('shell-web-url-changed', { url }); } catch (_) {}
     // 通知 harness 页面刷新"需初始化项目"状态（首页 ↔ 会话页）
     try { pushHarnessState(windowState.getContextByWebContents(view.webContents)); } catch (_) {}
     autoConnectMcp();
@@ -592,6 +610,10 @@ injectAgentRunner(async ({ agent, task, currentWindowId }: any) => {
     maxTurns: agent.maxTurns,
   });
 });
+// 给 runAgent 工具注入"是否子代理窗口"判定（防递归；tools 层不依赖 app）
+injectSubagentChecker(isSubagentWindow);
+// 给 goalDone 工具注入"推送目标完成事件"实现（tools 层不依赖 app）
+injectGoalDonePusher(pushGoalDone);
 // 给 nameConversation 工具注入"设置当前会话标题"实现
 injectSessionTitleSetter(async ({ windowId, title }: any) => {
   const ctx = windowState.getWindowContext(windowId);
@@ -627,9 +649,10 @@ ipcMainForProfile.handle('list-profiles', async () => {
 // 删除指定 profile（会关闭其窗口）
 ipcMainForProfile.handle('delete-profile', async (_event: any, { profileId }: any) => {
   if (!profileId) return { success: false, error: '缺少窗口ID' };
-  const ctx = windowState.getWindowByProfileId(profileId);
-  if (ctx && ctx.win && !ctx.win.isDestroyed()) {
-    ctx.win.close();
+  // 关掉该 profile 的**全部**窗口（含子代理分身）
+  const all = windowState.getAllWindowsByProfileId(profileId);
+  for (const c of all) {
+    if (c && c.win && !c.win.isDestroyed()) c.win.close();
   }
   const ok = profileManager.deleteProfile(profileId);
   return { success: ok, error: ok ? null : '窗口不存在' };

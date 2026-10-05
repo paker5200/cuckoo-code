@@ -10,6 +10,24 @@ export interface ShellAPI {
   home?: () => void;
   onUrlUpdated?: (cb: (data: any) => void) => void;
   toggleSidebar?: (width: number) => void;
+  startSidebarDrag?: () => void;
+  endSidebarDrag?: () => void;
+  onSidebarDrag?: (cb: (width: number) => void) => void;
+  /** 网页端会话列表（DOM 读取，实时同步网页） */
+  listWebSessions?: () => Promise<any>;
+  navigateWebSession?: (url: string) => Promise<any>;
+  newWebConversation?: () => Promise<any>;
+  onWebUrlChanged?: (cb: () => void) => void;
+  /** harness 生成中（busy=true → 禁用对话切换） */
+  onHarnessBusy?: (cb: (busy: boolean) => void) => void;
+  // 插件市场 / 安装
+  pluginMarketList?: (opts?: any) => Promise<any>;
+  pluginMarketRemote?: (targets: any) => Promise<any>;
+  pluginInstall?: (repo: string, branch: string, upgrade: boolean) => Promise<any>;
+  pluginUninstall?: (id: string) => Promise<any>;
+  listInstalledPlugins?: () => Promise<any>;
+  pluginSetEnabled?: (id: string, enabled: boolean) => Promise<any>;
+  pluginOpenDir?: () => Promise<any>;
   /** 切换纯净对话模式（Harness） */
   toggleHarness?: () => Promise<any>;
   /** 纯净模式状态变化（harness=true 表示已进入纯净模式） */
@@ -27,6 +45,7 @@ export interface ShellAPI {
   navigateSession?: (sessionId: string) => Promise<any>;
   setSessionArchived?: (sessionId: string, archived: boolean) => Promise<any>;
   getDirInfo?: (dir: string) => Promise<{ success: boolean; dir?: string; createdAt?: string | null; error?: string }>;
+  listProjectTree?: () => Promise<{ success: boolean; root?: string; tree?: any[]; truncated?: boolean; error?: string }>;
   setProjectArchived?: (dir: string, archived: boolean) => Promise<any>;
   setSessionTitle?: (sessionId: string, title: string) => Promise<any>;
   newConversationForProject?: (projectDir: string) => Promise<any>;

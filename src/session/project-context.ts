@@ -36,7 +36,7 @@ function logWithFile(providerId: string, msg: string): void {
  * @param extraPrompt 追加到提示词末尾的额外内容（子代理用它带上"代理系统提示 + 任务"）
  * @param noDialog 为 true 时不弹目录选择框（子代理场景：目录取不到就用空值继续）
  */
-async function initProject(skipPrompt: boolean = false, windowContext: any = null, presetDir: string | null = null, isCompaction: boolean = false, extraPrompt: string = '', noDialog: boolean = false): Promise<any> {
+async function initProject(skipPrompt: boolean = false, windowContext: any = null, presetDir: string | null = null, isCompaction: boolean = false, extraPrompt: string = '', noDialog: boolean = false, parentSessionId: string | null = null): Promise<any> {
   const ctx = windowContext || windowState.getMainContext();
   const mainWindow = ctx ? ctx.win : windowState.getMainWindow();
   // AI 页面在 WebContentsView 中（壳窗口的 win.webContents 是地址栏壳页面）
@@ -79,6 +79,11 @@ async function initProject(skipPrompt: boolean = false, windowContext: any = nul
   }
   const tStart = Date.now();
   const stepLog = (msg: string) => logWithFile(providerId, '[Cuckoo Code][耗时] ' + msg + ' +' + (Date.now() - tStart) + 'ms');
+
+  // 压缩血缘：记下"压缩前会话ID"，新会话ID出现时写入（并标记旧版被取代）
+  if (isCompaction && parentSessionId && sessionStore) {
+    sessionStore.state.pendingLineage = { parentId: parentSessionId, kind: 'compaction', agentName: null };
+  }
 
   // 保存选中的项目目录（若该窗口有独立的 sessionStore）
   if (sessionStore) {
@@ -137,6 +142,15 @@ async function initProject(skipPrompt: boolean = false, windowContext: any = nul
   console.log('[Cuckoo Code] 准备发送初始提示（不含目录树），长度:', combined.length);
   if (view && view.webContents && !view.webContents.isDestroyed()) {
     view.webContents.send('initial-prompt', combined);
+    // 主进程直接告诉纯净模式：框架正在驱动 AI 页面（不依赖 AI 页面 bridge 门控，
+    // 因为此刻页面可能正处在导航/重载中，bridge 尚未就绪）。
+    // 只反馈运行态，提示词内容不进对话流。
+    try {
+      const hv = ctx && (ctx as any).harnessView;
+      if (hv && !hv.webContents.isDestroyed()) {
+        hv.webContents.send('harness-event', { type: 'framework-send', tag: '系统提示词', system: true });
+      }
+    } catch (_) { /* ignore */ }
   }
   stepLog('initial-prompt 已发送');
 

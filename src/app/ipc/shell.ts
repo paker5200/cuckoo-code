@@ -10,6 +10,8 @@ import { getProvider } from '../../providers/registry.js';
 import { setWindowCumulative, getTotal, cleanupSubagentKeys } from '../token-stats.js';
 import { resolveAsset, resolveSrc } from '../../infra/paths.js';
 import * as updater from '../../updater/index.js';
+// 新对话要让 harness 视图一起重置 —— 两个入口共用同一段逻辑，避免行为分叉
+import { prepareNewConversation } from './harness.js';
 
 const require = createRequire(import.meta.url);
 const { ipcMain, app, shell, BrowserWindow } = require('electron');
@@ -17,6 +19,33 @@ const { ipcMain, app, shell, BrowserWindow } = require('electron');
 /** 取事件来源对应的 AI 页面 view */
 function viewOf(event: any): any {
   return windowState.getViewByWebContents(event.sender);
+}
+
+/**
+ * 默认的网页会话列表抓取：扫 a[href]，按 sessionUrlBase 的 pathname 前缀过滤。
+ * 必须自包含（会被 toString 序列化后注入 AI 页面主世界执行），
+ * 只使用 doc / win / base 三个入参与浏览器全局。
+ */
+function defaultSessionListFn(doc: any, win: any, base: any) {
+  try {
+    var basePath = '';
+    try { basePath = new win.URL(base).pathname; } catch (e) { basePath = ''; }
+    var anchors = doc.querySelectorAll('a[href]');
+    var seen: any = {}, out: any[] = [];
+    for (var i = 0; i < anchors.length; i++) {
+      var a = anchors[i];
+      var href = a.href || '';
+      if (!href) continue;
+      if (basePath && href.indexOf(basePath) === -1) continue;
+      var title = String(a.innerText || a.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      if (!title) continue;
+      if (seen[href]) continue;
+      seen[href] = 1;
+      var cls = (typeof a.className === 'string') ? a.className : '';
+      out.push({ title: title, href: href, active: cls.indexOf('active') !== -1 || a.getAttribute('aria-current') === 'page' });
+    }
+    return out.slice(0, 100);
+  } catch (e) { return []; }
 }
 
 /** 把当前 URL 与前进/后退可用状态推送给壳页面 */
@@ -78,10 +107,8 @@ function registerShellIpc(): void {
     // 更新系统总累计并广播给所有窗口
     try {
       const ctx = view ? windowState.getContextByWebContents(view.webContents) : null;
-      // 子代理窗口跳过：它与父窗口共享 partition/localStorage，
-      // windowCumulative 等于父窗口的值，上报会重复计入系统总累计。
-      const isSubagent = ctx && ctx.profileId && String(ctx.profileId).startsWith('subagent-');
-      if (ctx && ctx.profileId && !isSubagent && typeof windowCumulative === 'number') {
+      // 子代理与父窗口共用 profileId，写入的是同一个键（幂等，不会重复累计）。
+      if (ctx && ctx.profileId && typeof windowCumulative === 'number') {
         setWindowCumulative(ctx.profileId, windowCumulative);
         broadcastSystemTotal();
       }
@@ -94,6 +121,50 @@ function registerShellIpc(): void {
     return { success: true, systemTotal: getTotal() };
   });
 
+
+  // ===== 侧栏「对话」分页：读网页端会话列表（DOM 实时读取，天然同步）+ 导航 =====
+  ipcMain.handle('web-list-sessions', async (event: any) => {
+    const ctx = windowState.getContextByWebContents(event.sender);
+    const view = ctx ? ctx.view : null;
+    if (!view || !view.webContents || view.webContents.isDestroyed()) return { success: false, sessions: [] };
+    const provider = (ctx && ctx.providerId) ? getProvider(ctx.providerId) : null;
+    const base = (provider && provider.sessionUrlBase) || '';
+    try {
+      // 平台可提供自定义抓取实现（侧栏非 a[href] 结构时必需），否则用默认实现
+      const fn = (provider && typeof provider.getSessionListFn === 'function')
+        ? provider.getSessionListFn()
+        : defaultSessionListFn;
+      if (typeof fn !== 'function') return { success: false, error: 'getSessionListFn 未返回函数', sessions: [] };
+      const list = await view.webContents.executeJavaScript('(' + fn.toString() + ')(document, window, ' + JSON.stringify(base) + ')');
+      return { success: true, sessions: list || [], currentUrl: view.webContents.getURL() };
+    } catch (err: any) {
+      return { success: false, error: err.message, sessions: [] };
+    }
+  });
+  ipcMain.handle('web-navigate-session', async (event: any, { url }: any) => {
+    const ctx = windowState.getContextByWebContents(event.sender);
+    const view = ctx ? ctx.view : null;
+    if (!view || !url) return { success: false };
+    try { await view.webContents.loadURL(url); return { success: true }; }
+    catch (err: any) { return { success: false, error: err.message }; }
+  });
+  // 新对话：导航到平台首页（开新会话）
+  ipcMain.handle('web-new-conversation', async (event: any) => {
+    const ctx = windowState.getContextByWebContents(event.sender);
+    const view = ctx ? ctx.view : null;
+    if (!view) return { success: false };
+    const provider = (ctx && ctx.providerId) ? getProvider(ctx.providerId) : null;
+    const url = provider && provider.homeUrl ? provider.homeUrl : '';
+    if (!url) return { success: false, error: 'no-home-url' };
+    try {
+      // 这里曾只做 loadURL —— AI 网页换了新会话，但 harness 视图完全不知道，
+      // 于是消息流/计划/目标/附件全留在屏幕上（"新对话"后满屏残留）。
+      prepareNewConversation(ctx);
+      await view.webContents.loadURL(url);
+      return { success: true };
+    }
+    catch (err: any) { return { success: false, error: err.message }; }
+  });
 
   ipcMain.handle('shell-navigate', async (event: any, { url }: any) => {
     const view = viewOf(event);
@@ -227,6 +298,52 @@ function registerShellIpc(): void {
     const win = ctx.win;
     try { win.__ckToggleHarness?.(); } catch (_) { /* ignore */ }
     return { success: true, harness: !!win.__ckHarnessVisible };
+  });
+
+  // ===== 侧边栏拖拽调宽 =====
+  // 拖拽时把 AI 视图移出（宽0），鼠标事件全落壳页面；主进程轮询鼠标位置算宽度并推回。
+  // 松开后恢复 AI 视图。
+  ipcMain.on('shell-sidebar-drag-start', (event: any) => {
+    const ctx = windowState.getContextByWebContents(event.sender);
+    if (!ctx || !ctx.win || ctx.win.isDestroyed()) return;
+    const win = ctx.win;
+    const view = ctx.view;
+    if (win.__ckSidebarDragging) return;
+    win.__ckSidebarDragging = true;
+    // 移出 AI 视图 + harness 视图（避免鼠标被它们捕获）
+    try { if (view && !view.webContents.isDestroyed()) view.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
+    try {
+      const hv = win.__ckHarnessView;
+      if (hv && !hv.webContents.isDestroyed()) hv.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    } catch (_) {}
+    const { screen } = require('electron');
+    const base = ctx.win.getContentBounds(); // 窗口内容区（屏幕坐标）
+    const minW = 320;
+    win.__ckSidebarDragTimer = setInterval(() => {
+      try {
+        if (!win || win.isDestroyed()) return;
+        const pt = screen.getCursorScreenPoint();
+        let w = Math.round(pt.x - base.x);
+        if (w < minW) w = minW;
+        win.__ckSidebarDragWidth = w;
+        if (!win.webContents.isDestroyed()) win.webContents.send('shell-sidebar-drag', w);
+      } catch (_) { /* ignore */ }
+    }, 16);
+  });
+
+  ipcMain.on('shell-sidebar-drag-end', (event: any) => {
+    const ctx = windowState.getContextByWebContents(event.sender);
+    if (!ctx || !ctx.win || ctx.win.isDestroyed()) return;
+    const win = ctx.win;
+    if (!win.__ckSidebarDragging) return;
+    win.__ckSidebarDragging = false;
+    if (win.__ckSidebarDragTimer) { clearInterval(win.__ckSidebarDragTimer); win.__ckSidebarDragTimer = null; }
+    const w = win.__ckSidebarDragWidth;
+    if (typeof w === 'number') win.__ckSidebarWidth = w;
+    // 恢复 AI 视图（按新宽度重排）
+    try { if (typeof win.__ckLayout === 'function') win.__ckLayout(); } catch (_) {}
+    // 通知壳页面最终宽度（确保一致）
+    try { if (!win.webContents.isDestroyed()) win.webContents.send('shell-sidebar-drag', win.__ckSidebarWidth); } catch (_) {}
   });
 
   // 设置左侧 Cuckoo 侧边栏宽度（收起=46，展开=320）→ 重新布局 AI 页面
