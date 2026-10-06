@@ -10,10 +10,11 @@
 | 项 | 值 |
 |---|---|
 | 定制版名称 | Cuckoo Code Flash |
-| 基于上游版本 | 0.8.7 (commit a18a21f) |
-| 定制基线 tag | flash-v0.8.7 |
+| 基于上游版本 | 0.8.8（已合并；定制基线为 0.8.7） |
+| 定制基线 tag | flash-v0.8.7（历史锚点，不动） |
 | 定制开发分支 | flash-dev |
 | 上游仓库 | https://github.com/wangyongpeng90/cuckoo-code |
+| 上游最新版本 | 0.8.10（待合并） |
 | 本 fork 仓库 | https://github.com/paker5200/cuckoo-code |
 | 定制目的 | ①新增"自动开启新对话"上下文策略 ②改名为独立应用，与原版并存 |
 
