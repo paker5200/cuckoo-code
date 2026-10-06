@@ -29,6 +29,7 @@ export {
   RULES_DIR,
   MCP_FILE,
   PROVIDERS_DIR,
+  SCRIPTS_DIR,
   isValidPluginId,
   getUserDir,
   getPluginsDir,
@@ -55,6 +56,21 @@ export {
   CODELOAD_BASE,
   RAW_BASE,
 } from './github.js';
+
+export {
+  GITEE_BASE,
+  GITEE_API,
+  GITEE_PREFIX,
+  isGiteeRepo,
+  stripGiteePrefix,
+  withGiteePrefix,
+  isValidGiteeRepo,
+  isValidGiteeBranch,
+  buildGiteeArchiveUrl,
+  buildGiteeRawUrl,
+  buildGiteeSearchUrl,
+  buildGiteeUserReposUrl,
+} from './gitee.js';
 
 export {
   TOPIC,
@@ -94,5 +110,6 @@ export {
   getPluginScanRoots,
   getEnabledPluginProviderFiles,
   getEnabledPluginMcpFiles,
+  getEnabledPluginWebScripts,
 } from './roots.js';
 export type { PluginScanRoots } from './roots.js';

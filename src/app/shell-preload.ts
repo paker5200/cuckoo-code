@@ -19,6 +19,9 @@ const shellAPI = {
   onTokenUpdated: (cb: (data: any) => void) => {
     ipcRenderer.on('shell-token-updated', (_e: any, data: any) => cb(data));
   },
+  onTpsUpdated: (cb: (data: any) => void) => {
+    ipcRenderer.on('shell-tps-updated', (_e: any, data: any) => cb(data));
+  },
   onTotalUpdated: (cb: (data: any) => void) => {
     ipcRenderer.on('shell-total-updated', (_e: any, data: any) => cb(data));
   },
@@ -49,6 +52,14 @@ const shellAPI = {
   },
   // 壳页面上报真实可视尺寸（供主进程精确布局 WebContentsView，避免菜单栏高度误差）
   reportShellSize: (w: number, h: number) => ipcRenderer.send('shell-report-size', { w, h }),
+  // ========== 窗口组 ==========
+  wgList: () => ipcRenderer.invoke('wg-list'),
+  wgCreate: (name?: string) => ipcRenderer.invoke('wg-create', { name }),
+  wgAddWindow: (groupId: string, windowId: string) => ipcRenderer.invoke('wg-add-window', { groupId, windowId }),
+  wgRemoveWindow: (groupId: string, windowId: string) => ipcRenderer.invoke('wg-remove-window', { groupId, windowId }),
+  wgRename: (groupId: string, name: string) => ipcRenderer.invoke('wg-rename', { groupId, name }),
+  wgDelete: (groupId: string) => ipcRenderer.invoke('wg-delete', { groupId }),
+  wgSwitch: (groupId: string) => ipcRenderer.invoke('wg-switch', { groupId }),
   // ========== 窗口管理 ==========
   listProfiles: () => ipcRenderer.invoke('list-profiles'),
   listProviders: () => ipcRenderer.invoke('list-providers'),
@@ -63,6 +74,8 @@ const shellAPI = {
   getDirInfo: (dir: string) => ipcRenderer.invoke('get-dir-info', { dir }),
   // 项目文件树（只读浏览）
   listProjectTree: () => ipcRenderer.invoke('list-project-tree'),
+  readProjectFile: (relPath: string) => ipcRenderer.invoke('read-project-file', { relPath }),
+  openFileExternal: (relPath: string) => ipcRenderer.invoke('open-project-file-external', { relPath }),
   setProjectArchived: (dir: string, archived: boolean) => ipcRenderer.invoke('set-project-archived', { dir, archived }),
   setSessionTitle: (sessionId: string, title: string) => ipcRenderer.invoke('set-session-title', { sessionId, title }),
   newConversationForProject: (projectDir: string) => ipcRenderer.invoke('new-conversation-for-project', { projectDir }),

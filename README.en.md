@@ -48,7 +48,7 @@ Not just chat. The AI can read/write files, search code, execute commands, query
 - **Harness mode (pure chat)**: a Codex-like pure chat UI — hides low-level instructions, showing only user messages / model replies / tool cards; supports streaming, Markdown, KaTeX math, collapsible thinking, Goal/Plan panel (toggle with Ctrl+Shift+H)
 - **Workspace sidebar**: lists all conversations grouped by project; rename / archive / new; expand a conversation to see its **subagents** and **compaction history** (session lineage)
 - **Project file tree**: VSCode-style tree with type icons / colors, filename search, and one-click `@` path reference
-- **Plugin market**: auto-discovers plugins via GitHub `topic:cuckoo-plugin`; install / uninstall / toggle in one click (a plugin can bundle skills / agents / rules / MCP / custom providers)
+- **Plugin market**: auto-discovers plugins via GitHub `topic:cuckoo-plugin`; install / uninstall / toggle in one click (a plugin can bundle skills / agents / rules / MCP / custom providers / **web scripts**); **Gitee source supported**
 - **Auto-naming conversations**: the AI names each conversation at the start; the workspace list refreshes live
 - **Skill support**: Claude Code-aligned skills (project `.cuckoo/skills/` + user `~/.cuckoo/skills/`), progressive disclosure — teach the AI domain-specific workflows/rules/scripts. **→ [Configuration & usage](docs/skills.md)**
 - **Agent support**: Claude Code-aligned subagents (project `.cuckoo/agents/` + user `~/.cuckoo/agents/`); the main conversation can delegate tasks to an isolated-context subagent that returns only a summary — isolating context and enabling specialization. **→ [Configuration & usage](docs/agents.md)**
@@ -317,5 +317,20 @@ This project is licensed under the GNU General Public License v3.0. See the LICE
 
 - DeepSeek and Claude for providing powerful AI capabilities
 - Electron for the cross-platform desktop framework
-- [@27584](https://github.com/27584): framework-level improvements including the Provider send extension interface, dual-channel streaming stability, custom Provider renderer loading, and MCP tool recognition (PR #9)
+- [@27584](https://github.com/27584):
+  - Framework-level improvements: Provider send extension interface, dual-channel streaming stability, custom Provider renderer loading, MCP tool recognition (PR #9)
+  - **Harness mode (pure chat)**: a Codex-like pure chat UI — hides low-level instructions, showing only user messages / model replies / tool cards; with streaming, collapsible thinking, Goal/Plan panel, slash menu (PR #22)
+  - **Harness enhancements + Plugin market**: multi-session isolation, sidebar "Conversations" tab, Markdown/LaTeX (KaTeX) rendering, Goal/Plan auto-drive, plugin market (GitHub topic auto-discovery & install) (PR #23)
+- [@jiangchengnay](https://github.com/jiangchengnay):
+  - **Plugin web-script injection**: new `scripts/` contribution type for plugins — inject scripts into the web page's main world by URL match, works on built-in platforms (PR #26)
+  - **Gitee plugin market support**: the plugin market gains a Gitee source (search / download / manifest), parallel to GitHub, for users with unstable GitHub access (PR #28)
+  - **Subagent send fix**: fixes subagents getting stuck at "sending task prompt" on contenteditable platforms like Doubao (PR #29)
+- [@8555uuy](https://github.com/8555uuy):
+  - **Dangerous-command detection hardening**: fixes detection bypass via compound commands (`&&` `||` `;` `|` `&`); unifies into a single source of truth and adds more dangerous variants (PR #30)
+  - **glob excludes artifact dirs**: excludes dependency/artifact dirs like `node_modules` by default when no path is given, avoiding drowning out the project's own files (PR #31)
+  - **webFetch SSRF protection**: rejects internal/loopback/reserved addresses (opt-in via Settings, off by default) (PR #32)
+  - **Status-bar output speed (TPS)**: shows model output speed — exact server-side token count on DeepSeek, estimated on ChatGPT/Claude (PR #33)
+  - **Provider-customizable tool-result format**: new optional `transformToolResult` hook lets plugins customize the text format before tool results are sent back (PR #34)
+- [@ZiJiangel](https://github.com/ZiJiangel):
+  - **Feishu Markdown card**: AI replies pushed to Feishu now render Markdown (including tables) via interactive cards (PR #35)
 - All contributors and users

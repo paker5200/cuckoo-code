@@ -32,19 +32,24 @@ let electronAPI: any = {
   ensureProgressFolder: (projectDir: any) => {
     return ipcRenderer.invoke('ensure-progress-folder', { projectDir });
   },
+  getPluginWebScripts: () => {
+    return ipcRenderer.invoke('get-plugin-web-scripts');
+  },
   executeTool: (toolName: any, params: any, callId: any) => {
     return ipcRenderer.invoke('execute-tool', { toolName, params, callId });
   },
   executeJs: (code: any, callId: any) => {
     // 附件上传间隔（毫秒），随 JS 执行一并传给主进程的 attachFile 工具
     let attachDelayMin, attachDelayMax;
+    let ssrfGuard = false;
     try {
       const mn = parseInt(localStorage.getItem('cuckoo-attach-delay-min') as string, 10);
       const mx = parseInt(localStorage.getItem('cuckoo-attach-delay-max') as string, 10);
       if (Number.isFinite(mn)) attachDelayMin = mn;
       if (Number.isFinite(mx)) attachDelayMax = mx;
+      ssrfGuard = localStorage.getItem('cuckoo-ssrf-guard') === '1';
     } catch (_) {}
-    return ipcRenderer.invoke('execute-js', { code, callId, attachDelayMin, attachDelayMax });
+    return ipcRenderer.invoke('execute-js', { code, callId, attachDelayMin, attachDelayMax, ssrfGuard });
   },
   sendEnterToChat: () => {
     return ipcRenderer.invoke('chat-send-enter');
@@ -81,6 +86,10 @@ let electronAPI: any = {
   },
   updateTokenUsage: (context: any, cumulative: any, windowCumulative: any, todayCumulative: any, daily: any) => {
     return ipcRenderer.invoke('update-token-usage', { context, cumulative, windowCumulative, todayCumulative, daily });
+  },
+  // 输出速度（TPS）展示文本；空串表示本轮已结束/无数据
+  updateTps: (text: any) => {
+    return ipcRenderer.invoke('update-tps', { text });
   },
   // ========== 技能相关 API ==========
   refreshSkills: () => {

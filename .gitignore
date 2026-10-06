@@ -36,6 +36,8 @@ temp/
 resources/runtime/
 
 # Project specific
+# 工具结果运行时产物（每次执行生成，不进仓库）
+.cuckoo/tool-results/
 # .cuckooCode/ 是各项目的工具目录，通常不提交；但本项目自身的约束文件 CUCKOO.md 例外
 .cuckooCode/*
 !.cuckooCode/CUCKOO.md
@@ -57,3 +59,5 @@ coverage/
 
 # 自定义 Provider 文件（各人私有，不进仓库）
 custom-providers/
+# Monaco（体积大，不进仓库；由 scripts/copy-monaco.mjs 从 node_modules 复制）
+src/ui/vendor/monaco/

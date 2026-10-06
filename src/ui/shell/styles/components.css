@@ -57,6 +57,9 @@
   .ck-btn-anim::before, .ck-btn-anim::after { content: ''; flex: 0 0 0; transition: flex-grow .3s ease; }
   .ck-btn-anim::after { flex-grow: 1; }
   .ck-btn-anim:hover::before, .ck-btn-anim:hover::after { flex-grow: 1; }
+  /* 窗口页顶部：两行按钮（新建窗口+刷新 / 新建窗口组），行间留距 */
+  .ck-tab[data-panel="windows"] .ck-actions { gap: 8px; }
+  .ck-tab[data-panel="windows"] .ck-actions + .ck-actions { margin-top: 8px; }
   /* 方形图标按钮 */
   .ck-icon-btn {
     flex: 0 0 32px; width: 32px; height: 32px;
@@ -274,6 +277,47 @@
   .ck-dialog-msg { font-size: 12.5px; color: var(--ck-text-2); line-height: 1.6; word-break: break-word; }
   /* 侧边栏相对定位（弹层锚点�?*/
   .ck-panel { position: relative; }
+  /* 「文件」页内：左树 + 右预览 分栏 */
+  .ck-files-cols { flex: 1; min-height: 0; display: flex; flex-direction: row; overflow: hidden; }
+  .ck-preview-pane {
+    display: none; flex-direction: column;
+    width: 420px; flex-shrink: 0;
+    border-left: 1px solid var(--ck-border);
+    overflow: hidden; position: relative;
+  }
+  .ck-preview-pane.open { display: flex; }
+  .ck-preview-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--ck-border);
+    flex-shrink: 0;
+  }
+  .ck-preview-name {
+    flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--ck-text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ck-preview-size { font-size: 10.5px; color: var(--ck-text-dim); flex-shrink: 0; }
+  .ck-preview-acts { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+  .ck-preview-btn {
+    width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+    border-radius: 6px; font-size: 13px; color: var(--ck-text-dim); cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .ck-preview-btn:hover { background: var(--ck-surface-hover); color: var(--ck-text); }
+  .ck-preview-body { flex: 1; overflow: hidden; position: relative; }
+  .ck-monaco { position: absolute; inset: 0; }
+  .ck-preview-body pre {
+    margin: 0; padding: 12px 14px;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 12px; line-height: 1.6; white-space: pre; tab-size: 2;
+    color: var(--ck-text-2);
+  }
+  .ck-preview-empty { padding: 30px 16px; text-align: center; color: var(--ck-text-dim); font-size: 12px; }
+  /* 预览区左缘拖拽手柄 */
+  .ck-preview-resizer {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+    cursor: col-resize; z-index: 5;
+  }
+  .ck-preview-resizer:hover { background: var(--ck-primary-soft); }
   /* 窗口卡片（两行） */
   .ck-win-item {
     display: flex; flex-direction: column; gap: 9px;
@@ -324,7 +368,74 @@
   /* 已勾选「默认打开」：始终可见 */
   .ck-win-check.ck-win-check-on { opacity: 1; pointer-events: auto; }
   .ck-win-check input { accent-color: var(--ck-primary); cursor: pointer; margin: 0; }
-  /* 收起：只隐藏面板，保留图标栏（宽度从 320 �?46�?*/
+  /* 窗口组 */
+  .ck-wg { margin-bottom: 6px; }
+  .ck-wg-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; border-radius: 8px;
+    background: var(--ck-surface);
+  }
+  .ck-wg-name { font-size: 12px; font-weight: 600; color: var(--ck-text); }
+  .ck-wg-switch {
+    margin-left: auto; font-size: 11px; color: var(--ck-primary);
+    padding: 2px 10px; border-radius: 6px; cursor: pointer;
+    background: var(--ck-primary-soft); transition: background .15s;
+  }
+  .ck-wg-switch:hover { background: var(--ck-primary); color: #fff; }
+  .ck-wg-manage {
+    font-size: 11px; color: var(--ck-text-dim);
+    padding: 2px 8px; border-radius: 6px; cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .ck-wg-manage:hover { background: var(--ck-surface-hover); color: var(--ck-text); }
+  .ck-wg-last {
+    margin: 4px 0 2px 12px; padding: 4px 8px;
+    font-size: 11px; color: var(--ck-text-dim);
+    border-left: 2px solid var(--ck-primary-soft);
+    border-radius: 4px; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: background .15s, color .15s;
+  }
+  .ck-wg-last:hover { background: var(--ck-surface-hover); color: var(--ck-primary); }
+  /* 管理窗口组弹窗：成员列表 */
+  .ck-wg-members { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
+  .ck-wg-member {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; border-radius: 7px;
+    background: var(--ck-surface); font-size: 12px; color: var(--ck-text-2);
+  }
+  .ck-wg-member-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ck-wg-member-del {
+    width: 20px; height: 20px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px; font-size: 11px; color: var(--ck-text-dim); cursor: pointer;
+  }
+  .ck-wg-member-del:hover { background: var(--ck-danger); color: #fff; }
+  .ck-wg-member-empty { font-size: 11.5px; color: var(--ck-text-dim); padding: 4px 2px; }
+  .ck-wg-del {
+    width: 20px; height: 20px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px; font-size: 11px; color: var(--ck-text-dim);
+    cursor: pointer; transition: background .15s, color .15s;
+  }
+  .ck-wg-del:hover { background: var(--ck-danger); color: #fff; }
+  .ck-wg-body { padding-left: 8px; }
+  .ck-wg-ungrouped { opacity: .85; }
+  .ck-wg-ungrouped .ck-wg-head { background: transparent; }
+  /* 右键上下文菜单 */
+  .ck-ctx-menu {
+    position: fixed; z-index: 9999;
+    min-width: 140px; padding: 4px;
+    background: var(--ck-surface); border: 1px solid var(--ck-border);
+    border-radius: 9px; box-shadow: 0 6px 24px rgba(0,0,0,.18);
+  }
+  .ck-ctx-item {
+    padding: 7px 10px; border-radius: 6px; font-size: 12px;
+    color: var(--ck-text-2); cursor: pointer; white-space: nowrap;
+  }
+  .ck-ctx-item:hover { background: var(--ck-surface-hover); color: var(--ck-text); }
+  .ck-ctx-item-new { color: var(--ck-primary); }
+  /* 收起：只隐藏面板，保留图标栏（宽度从 320 → 46）*/
   .ck-sidebar.ck-collapsed { width: 46px; }
   .ck-sidebar.ck-collapsed .ck-panel { display: none; }
   /* 拖拽调宽手柄（贴右边，宽热区） */
@@ -335,10 +446,6 @@
   .ck-sidebar-resizer:hover { background: var(--ck-primary-soft); }
   .ck-sidebar.ck-collapsed .ck-sidebar-resizer { display: none; }
   /* 滚动条（跟随主题�?*/
-  .ck-panel-body::-webkit-scrollbar { width: 4px; }
-  .ck-panel-body::-webkit-scrollbar-track { background: transparent; }
-  .ck-panel-body::-webkit-scrollbar-thumb { background: var(--ck-scroll-thumb); border-radius: 2px; }
-  .ck-panel-body::-webkit-scrollbar-thumb:hover { background: var(--ck-scroll-hover); }
 
   /* ===== 项目文件树 ===== */
   .ck-ft-search {
@@ -358,10 +465,6 @@
   .ck-tab[data-panel="files"] { flex: 1; min-height: 0; }
   .ck-ft { padding: 2px 0; overflow: auto; flex: 1; min-height: 0; }
   /* 滚动条：与侧边栏一致（4px、圆角 2px、透明轨道） */
-  .ck-ft::-webkit-scrollbar { width: 4px; height: 4px; }
-  .ck-ft::-webkit-scrollbar-track { background: transparent; }
-  .ck-ft::-webkit-scrollbar-thumb { background: var(--ck-scroll-thumb); border-radius: 2px; }
-  .ck-ft::-webkit-scrollbar-thumb:hover { background: var(--ck-scroll-hover); }
   .ck-ft-row {
     display: flex; align-items: center; gap: 4px;
     padding: 4px 8px; border-radius: 6px; cursor: pointer;

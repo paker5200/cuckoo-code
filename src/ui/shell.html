@@ -5,7 +5,16 @@
 <head>
 <meta charset="UTF-8">
 <title>Cuckoo</title>
+<script src="vendor/monaco/vs/loader.js"></script>
 <style>
+/* ===== 全局滚动条（统一规范：4px 细条、透明轨道、圆角滑块）=====
+ * 不要逐个元素写滚动条样式——统一在这里定义，避免各处不一致。
+ */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--ck-scroll-thumb); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--ck-scroll-hover); }
+
 /* ===== 浅色（默认）===== */
   :root {
     --ck-bg: #ffffff;
@@ -208,7 +217,9 @@
   .ck-ab-spacer { flex: 1; }
 
   .ck-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
-  .ck-panel-body { flex: 1; overflow-y: auto; padding: 16px 8px; display: flex; flex-direction: column; gap: 14px; }
+  /* 面板列：左（各页）+ 右（文件预览，默认隐藏） */
+  .ck-panel-cols { flex: 1; min-width: 0; display: flex; flex-direction: row; overflow: hidden; }
+  .ck-panel-body { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 8px; display: flex; flex-direction: column; gap: 14px; }
   .ck-tab { display: none; flex-direction: column; gap: 14px; }
   .ck-tab.ck-tab-active { display: flex; }
   .ck-placeholder { color: var(--ck-text-dim); font-size: 12px; text-align: center; padding: 20px 0; }
@@ -272,6 +283,9 @@
   .ck-btn-anim::before, .ck-btn-anim::after { content: ''; flex: 0 0 0; transition: flex-grow .3s ease; }
   .ck-btn-anim::after { flex-grow: 1; }
   .ck-btn-anim:hover::before, .ck-btn-anim:hover::after { flex-grow: 1; }
+  /* 窗口页顶部：两行按钮（新建窗口+刷新 / 新建窗口组），行间留距 */
+  .ck-tab[data-panel="windows"] .ck-actions { gap: 8px; }
+  .ck-tab[data-panel="windows"] .ck-actions + .ck-actions { margin-top: 8px; }
   /* 方形图标按钮 */
   .ck-icon-btn {
     flex: 0 0 32px; width: 32px; height: 32px;
@@ -489,6 +503,47 @@
   .ck-dialog-msg { font-size: 12.5px; color: var(--ck-text-2); line-height: 1.6; word-break: break-word; }
   /* 侧边栏相对定位（弹层锚点�?*/
   .ck-panel { position: relative; }
+  /* 「文件」页内：左树 + 右预览 分栏 */
+  .ck-files-cols { flex: 1; min-height: 0; display: flex; flex-direction: row; overflow: hidden; }
+  .ck-preview-pane {
+    display: none; flex-direction: column;
+    width: 420px; flex-shrink: 0;
+    border-left: 1px solid var(--ck-border);
+    overflow: hidden; position: relative;
+  }
+  .ck-preview-pane.open { display: flex; }
+  .ck-preview-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--ck-border);
+    flex-shrink: 0;
+  }
+  .ck-preview-name {
+    flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--ck-text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ck-preview-size { font-size: 10.5px; color: var(--ck-text-dim); flex-shrink: 0; }
+  .ck-preview-acts { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+  .ck-preview-btn {
+    width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+    border-radius: 6px; font-size: 13px; color: var(--ck-text-dim); cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .ck-preview-btn:hover { background: var(--ck-surface-hover); color: var(--ck-text); }
+  .ck-preview-body { flex: 1; overflow: hidden; position: relative; }
+  .ck-monaco { position: absolute; inset: 0; }
+  .ck-preview-body pre {
+    margin: 0; padding: 12px 14px;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 12px; line-height: 1.6; white-space: pre; tab-size: 2;
+    color: var(--ck-text-2);
+  }
+  .ck-preview-empty { padding: 30px 16px; text-align: center; color: var(--ck-text-dim); font-size: 12px; }
+  /* 预览区左缘拖拽手柄 */
+  .ck-preview-resizer {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+    cursor: col-resize; z-index: 5;
+  }
+  .ck-preview-resizer:hover { background: var(--ck-primary-soft); }
   /* 窗口卡片（两行） */
   .ck-win-item {
     display: flex; flex-direction: column; gap: 9px;
@@ -539,7 +594,74 @@
   /* 已勾选「默认打开」：始终可见 */
   .ck-win-check.ck-win-check-on { opacity: 1; pointer-events: auto; }
   .ck-win-check input { accent-color: var(--ck-primary); cursor: pointer; margin: 0; }
-  /* 收起：只隐藏面板，保留图标栏（宽度从 320 �?46�?*/
+  /* 窗口组 */
+  .ck-wg { margin-bottom: 6px; }
+  .ck-wg-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; border-radius: 8px;
+    background: var(--ck-surface);
+  }
+  .ck-wg-name { font-size: 12px; font-weight: 600; color: var(--ck-text); }
+  .ck-wg-switch {
+    margin-left: auto; font-size: 11px; color: var(--ck-primary);
+    padding: 2px 10px; border-radius: 6px; cursor: pointer;
+    background: var(--ck-primary-soft); transition: background .15s;
+  }
+  .ck-wg-switch:hover { background: var(--ck-primary); color: #fff; }
+  .ck-wg-manage {
+    font-size: 11px; color: var(--ck-text-dim);
+    padding: 2px 8px; border-radius: 6px; cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .ck-wg-manage:hover { background: var(--ck-surface-hover); color: var(--ck-text); }
+  .ck-wg-last {
+    margin: 4px 0 2px 12px; padding: 4px 8px;
+    font-size: 11px; color: var(--ck-text-dim);
+    border-left: 2px solid var(--ck-primary-soft);
+    border-radius: 4px; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: background .15s, color .15s;
+  }
+  .ck-wg-last:hover { background: var(--ck-surface-hover); color: var(--ck-primary); }
+  /* 管理窗口组弹窗：成员列表 */
+  .ck-wg-members { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
+  .ck-wg-member {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; border-radius: 7px;
+    background: var(--ck-surface); font-size: 12px; color: var(--ck-text-2);
+  }
+  .ck-wg-member-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ck-wg-member-del {
+    width: 20px; height: 20px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px; font-size: 11px; color: var(--ck-text-dim); cursor: pointer;
+  }
+  .ck-wg-member-del:hover { background: var(--ck-danger); color: #fff; }
+  .ck-wg-member-empty { font-size: 11.5px; color: var(--ck-text-dim); padding: 4px 2px; }
+  .ck-wg-del {
+    width: 20px; height: 20px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px; font-size: 11px; color: var(--ck-text-dim);
+    cursor: pointer; transition: background .15s, color .15s;
+  }
+  .ck-wg-del:hover { background: var(--ck-danger); color: #fff; }
+  .ck-wg-body { padding-left: 8px; }
+  .ck-wg-ungrouped { opacity: .85; }
+  .ck-wg-ungrouped .ck-wg-head { background: transparent; }
+  /* 右键上下文菜单 */
+  .ck-ctx-menu {
+    position: fixed; z-index: 9999;
+    min-width: 140px; padding: 4px;
+    background: var(--ck-surface); border: 1px solid var(--ck-border);
+    border-radius: 9px; box-shadow: 0 6px 24px rgba(0,0,0,.18);
+  }
+  .ck-ctx-item {
+    padding: 7px 10px; border-radius: 6px; font-size: 12px;
+    color: var(--ck-text-2); cursor: pointer; white-space: nowrap;
+  }
+  .ck-ctx-item:hover { background: var(--ck-surface-hover); color: var(--ck-text); }
+  .ck-ctx-item-new { color: var(--ck-primary); }
+  /* 收起：只隐藏面板，保留图标栏（宽度从 320 → 46）*/
   .ck-sidebar.ck-collapsed { width: 46px; }
   .ck-sidebar.ck-collapsed .ck-panel { display: none; }
   /* 拖拽调宽手柄（贴右边，宽热区） */
@@ -550,10 +672,6 @@
   .ck-sidebar-resizer:hover { background: var(--ck-primary-soft); }
   .ck-sidebar.ck-collapsed .ck-sidebar-resizer { display: none; }
   /* 滚动条（跟随主题�?*/
-  .ck-panel-body::-webkit-scrollbar { width: 4px; }
-  .ck-panel-body::-webkit-scrollbar-track { background: transparent; }
-  .ck-panel-body::-webkit-scrollbar-thumb { background: var(--ck-scroll-thumb); border-radius: 2px; }
-  .ck-panel-body::-webkit-scrollbar-thumb:hover { background: var(--ck-scroll-hover); }
 
   /* ===== 项目文件树 ===== */
   .ck-ft-search {
@@ -573,10 +691,6 @@
   .ck-tab[data-panel="files"] { flex: 1; min-height: 0; }
   .ck-ft { padding: 2px 0; overflow: auto; flex: 1; min-height: 0; }
   /* 滚动条：与侧边栏一致（4px、圆角 2px、透明轨道） */
-  .ck-ft::-webkit-scrollbar { width: 4px; height: 4px; }
-  .ck-ft::-webkit-scrollbar-track { background: transparent; }
-  .ck-ft::-webkit-scrollbar-thumb { background: var(--ck-scroll-thumb); border-radius: 2px; }
-  .ck-ft::-webkit-scrollbar-thumb:hover { background: var(--ck-scroll-hover); }
   .ck-ft-row {
     display: flex; align-items: center; gap: 4px;
     padding: 4px 8px; border-radius: 6px; cursor: pointer;
@@ -1069,6 +1183,28 @@
               </div>
             </div>
           </div>
+          <!-- 窗口组管理弹窗 -->
+          <div class="ck-modal-mask cuckoo-hidden" id="wg-modal">
+            <div class="ck-modal">
+              <span class="ck-modal-title">管理窗口组</span>
+              <div class="ck-field">
+                <span class="ck-field-label">组名</span>
+                <input class="ck-input" id="wg-modal-name" placeholder="组名" />
+              </div>
+              <div class="ck-field">
+                <span class="ck-field-label">组内窗口（按顺序轮换）</span>
+                <div class="ck-wg-members" id="wg-modal-members"></div>
+              </div>
+              <div class="ck-field" id="wg-modal-add-wrap">
+                <span class="ck-field-label">添加窗口</span>
+                <select class="ck-input" id="wg-modal-add"></select>
+              </div>
+              <div class="ck-modal-foot">
+                <button class="ck-btn ck-btn-secondary" id="wg-modal-cancel">取消</button>
+                <button class="ck-btn ck-btn-primary" id="wg-modal-save">保存</button>
+              </div>
+            </div>
+          </div>
           <!-- 通用输入弹窗（重命名会话等） -->
           <div class="ck-modal-mask cuckoo-hidden" id="input-modal">
             <div class="ck-modal">
@@ -1120,8 +1256,24 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
                 <input class="ck-ft-search-input" id="ft-search" placeholder="搜索文件名…" spellcheck="false" autocomplete="off" />
               </div>
-              <div class="ck-list ck-ft" id="ft-list">
-                <div class="ck-list-empty">加载中…</div>
+              <div class="ck-files-cols">
+                <div class="ck-list ck-ft" id="ft-list">
+                  <div class="ck-list-empty">加载中…</div>
+                </div>
+                <div class="ck-preview-pane" id="ck-preview-pane">
+                  <div class="ck-preview-head">
+                    <span class="ck-preview-name" id="ck-preview-name">文件预览</span>
+                    <span class="ck-preview-size" id="ck-preview-size"></span>
+                    <span class="ck-preview-acts">
+                      <span class="ck-preview-btn" id="ck-preview-ext" title="用系统程序打开">↗</span>
+                      <span class="ck-preview-btn" id="ck-preview-close" title="关闭预览">✕</span>
+                    </span>
+                  </div>
+                  <div class="ck-preview-body" id="ck-preview-body">
+                    <div class="ck-preview-empty" id="ck-preview-empty">点击左侧文件查看内容</div>
+                    <div class="ck-monaco" id="ck-monaco" style="display:none;"></div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1240,6 +1392,12 @@
                 </button>
                 <button class="ck-icon-btn" id="win-refresh" title="刷新列表">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+                </button>
+              </div>
+              <div class="ck-actions">
+                <button class="ck-btn ck-btn-anim" id="wg-new">
+                  <svg class="ck-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                  <span>新建窗口组</span>
                 </button>
               </div>
               <div class="ck-list" id="win-list">
@@ -1474,6 +1632,18 @@
                 </div>
               </div>
 
+              <div class="ck-card">
+                <div class="ck-set-group-title">网络安全</div>
+                <div class="ck-set-field ck-set-toggle">
+                  <span class="ck-set-key">拒绝 webFetch 访问内网/本地地址</span>
+                  <label class="ck-switch">
+                    <input type="checkbox" id="st-ssrf-guard" />
+                    <span class="ck-switch-track"></span>
+                  </label>
+                </div>
+                <p class="ck-about-tip">开启后，webFetch 将拒绝访问内网、回环、保留地址（防 SSRF）。默认关闭（可访问本地项目）。</p>
+              </div>
+
               <div class="ck-actions">
                 <button class="ck-btn ck-btn-primary" id="st-save">保存设置</button>
                 <button class="ck-btn ck-btn-secondary" id="st-reset">恢复默认</button>
@@ -1523,6 +1693,11 @@
         <span class="sb-label">对话上下文:</span>
         <span class="sb-value" id="sb-context">0</span>
       </div>
+      <div class="sb-item" id="sb-tps-item" title="模型输出速度：tokens/秒（生成中实时更新，结束后保留最终值）">
+        <span class="sb-label">输出速度:</span>
+        <span class="sb-value" id="sb-tps">--</span>
+        <span class="sb-label">t/s</span>
+      </div>
     </div>
 
   </div>
@@ -1530,8 +1705,22 @@
 <script>
 "use strict";
 (() => {
+  var __defProp = Object.defineProperty;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __esm = (fn, res, err) => function __init() {
+    if (err) throw err[0];
+    try {
+      return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+    } catch (e) {
+      throw err = [e], e;
+    }
+  };
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+
   // src/ui/shell/scripts/shared.ts
-  var api = window.shellAPI || {};
   function ckDialog(opts) {
     return new Promise((resolve) => {
       const mask = document.getElementById("ck-dialog");
@@ -1657,8 +1846,349 @@
     if (n >= 1e4) return (n / 1e4).toFixed(1) + "\u4E07";
     return String(Math.round(n));
   }
+  var api;
+  var init_shared = __esm({
+    "src/ui/shell/scripts/shared.ts"() {
+      "use strict";
+      api = window.shellAPI || {};
+    }
+  });
+
+  // src/ui/shell/scripts/preview-monaco.ts
+  function langOf(name) {
+    const dot = name.lastIndexOf(".");
+    if (dot < 0) return "plaintext";
+    return LANG_MAP[name.slice(dot + 1).toLowerCase()] || "plaintext";
+  }
+  function loadMonaco() {
+    if (monacoPromise) return monacoPromise;
+    monacoPromise = new Promise((resolve, reject) => {
+      const req = window.require;
+      if (!req) {
+        reject(new Error("Monaco loader \u672A\u52A0\u8F7D"));
+        return;
+      }
+      try {
+        req.config({ paths: { vs: "vendor/monaco/vs" } });
+        window.MonacoEnvironment = {
+          getWorkerUrl: function(moduleId, label) {
+            const base = "vendor/monaco/vs/";
+            if (label === "json") return base + "language/json/json.worker.js";
+            if (label === "css" || label === "scss" || label === "less") return base + "language/css/css.worker.js";
+            if (label === "html" || label === "handlebars" || label === "razor") return base + "language/html/html.worker.js";
+            if (label === "typescript" || label === "javascript") return base + "language/typescript/ts.worker.js";
+            return base + "editor/editor.worker.js";
+          }
+        };
+        req(["vs/editor/editor.main"], () => {
+          resolve(window.monaco);
+        }, (err) => reject(err || new Error("\u52A0\u8F7D\u5931\u8D25")));
+      } catch (e) {
+        reject(e);
+      }
+    });
+    return monacoPromise;
+  }
+  function themeName() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "vs-dark" : "vs";
+  }
+  async function showInMonaco(container, fileName, content) {
+    const monaco = await loadMonaco();
+    const lang = langOf(fileName);
+    if (!editor) {
+      editor = monaco.editor.create(container, {
+        value: content,
+        language: lang,
+        theme: themeName(),
+        readOnly: true,
+        automaticLayout: true,
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        fontSize: 12.5,
+        lineNumbers: "on",
+        renderWhitespace: "none",
+        wordWrap: "off"
+      });
+    } else {
+      const model = monaco.editor.createModel(content, lang);
+      const old = editor.getModel();
+      editor.setModel(model);
+      if (old) old.dispose();
+    }
+  }
+  function syncMonacoTheme() {
+    if (editor) {
+      try {
+        window.monaco.editor.setTheme(themeName());
+      } catch (_) {
+      }
+    }
+  }
+  var monacoPromise, editor, LANG_MAP;
+  var init_preview_monaco = __esm({
+    "src/ui/shell/scripts/preview-monaco.ts"() {
+      "use strict";
+      monacoPromise = null;
+      editor = null;
+      LANG_MAP = {
+        ts: "typescript",
+        tsx: "typescript",
+        mts: "typescript",
+        cts: "typescript",
+        js: "javascript",
+        jsx: "javascript",
+        mjs: "javascript",
+        cjs: "javascript",
+        json: "json",
+        json5: "json",
+        md: "markdown",
+        markdown: "markdown",
+        mdx: "markdown",
+        css: "css",
+        scss: "scss",
+        less: "less",
+        sass: "scss",
+        html: "html",
+        htm: "html",
+        vue: "html",
+        svelte: "html",
+        py: "python",
+        pyw: "python",
+        java: "java",
+        kt: "kotlin",
+        kts: "kotlin",
+        go: "go",
+        rs: "rust",
+        rb: "ruby",
+        php: "php",
+        c: "c",
+        h: "c",
+        cc: "cpp",
+        cpp: "cpp",
+        hpp: "cpp",
+        cxx: "cpp",
+        cs: "csharp",
+        sh: "shell",
+        bash: "shell",
+        zsh: "shell",
+        bat: "bat",
+        cmd: "bat",
+        ps1: "powershell",
+        yml: "yaml",
+        yaml: "yaml",
+        xml: "xml",
+        svg: "xml",
+        sql: "sql",
+        txt: "plaintext",
+        log: "plaintext",
+        lock: "plaintext"
+      };
+      if (window.matchMedia) {
+        try {
+          window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncMonacoTheme);
+        } catch (_) {
+        }
+      }
+    }
+  });
+
+  // src/ui/shell/scripts/preview.ts
+  var preview_exports = {};
+  __export(preview_exports, {
+    dismissPreview: () => dismissPreview,
+    hidePreview: () => hidePreview,
+    openPreview: () => openPreview,
+    restorePreview: () => restorePreview
+  });
+  function pane() {
+    return document.getElementById("ck-preview-pane");
+  }
+  function listEl() {
+    return document.getElementById("ft-list");
+  }
+  function sidebarEl() {
+    return document.getElementById("ck-sidebar");
+  }
+  function colsEl() {
+    return document.querySelector(".ck-files-cols");
+  }
+  function getPreviewWidth() {
+    try {
+      const v = Number(localStorage.getItem(PREVIEW_W_KEY));
+      if (Number.isFinite(v) && v >= MIN_PREVIEW_W && v <= 1600) return Math.round(v);
+    } catch (_) {
+    }
+    return 420;
+  }
+  function maxPreviewWidth() {
+    const avail = window.innerWidth - baseSidebarWidth() - 300;
+    return Math.max(MIN_PREVIEW_W, avail);
+  }
+  function savePreviewWidth(w) {
+    try {
+      localStorage.setItem(PREVIEW_W_KEY, String(w));
+    } catch (_) {
+    }
+  }
+  function baseSidebarWidth() {
+    try {
+      const v = Number(localStorage.getItem("cuckoo-sidebar-width"));
+      if (Number.isFinite(v) && v >= 320) return Math.round(v);
+    } catch (_) {
+    }
+    return 320;
+  }
+  function setSidebarWidth(total) {
+    let ww = Math.round(total);
+    const max = Math.round(window.innerWidth * 0.75);
+    if (ww > max) ww = max;
+    if (ww < 320) ww = 320;
+    const sb = sidebarEl();
+    if (sb && !sb.classList.contains("ck-collapsed")) sb.style.width = ww + "px";
+    if (api.toggleSidebar) api.toggleSidebar(ww);
+  }
+  function fmtSize(n) {
+    if (typeof n !== "number") return "";
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+    return (n / 1024 / 1024).toFixed(2) + " MB";
+  }
+  async function loadFile(relPath) {
+    const nameEl = document.getElementById("ck-preview-name");
+    const sizeEl = document.getElementById("ck-preview-size");
+    const emptyEl = document.getElementById("ck-preview-empty");
+    const monacoEl = document.getElementById("ck-monaco");
+    if (nameEl) {
+      nameEl.textContent = relPath;
+      nameEl.title = relPath;
+    }
+    if (sizeEl) sizeEl.textContent = "";
+    if (emptyEl) {
+      emptyEl.style.display = "block";
+      emptyEl.textContent = "\u52A0\u8F7D\u4E2D\u2026";
+    }
+    if (monacoEl) monacoEl.style.display = "none";
+    try {
+      const r = await api.readProjectFile(relPath);
+      if (!r || !r.success) {
+        if (emptyEl) {
+          emptyEl.style.display = "block";
+          emptyEl.textContent = r && r.error || "\u8BFB\u53D6\u5931\u8D25";
+        }
+        return;
+      }
+      if (sizeEl) sizeEl.textContent = fmtSize(r.size);
+      if (monacoEl) {
+        monacoEl.style.display = "block";
+        if (emptyEl) emptyEl.style.display = "none";
+        await showInMonaco(monacoEl, relPath, r.content);
+      }
+    } catch (err) {
+      if (emptyEl) {
+        emptyEl.style.display = "block";
+        emptyEl.textContent = "\u8BFB\u53D6\u5931\u8D25: " + escapeHtml(err.message);
+      }
+      if (monacoEl) monacoEl.style.display = "none";
+    }
+  }
+  async function openPreview(relPath) {
+    const p = pane();
+    if (!p) return;
+    currentRelPath = relPath;
+    if (!p.classList.contains("open")) {
+      const l = listEl();
+      openedBaseWidth = baseSidebarWidth();
+      if (l) {
+        const treeW = Math.round(l.getBoundingClientRect().width);
+        l.style.flex = "0 0 " + treeW + "px";
+        l.style.width = treeW + "px";
+      }
+      p.classList.add("open");
+      p.style.flex = "1 1 0";
+      p.style.width = "";
+      setSidebarWidth(openedBaseWidth + Math.min(getPreviewWidth(), maxPreviewWidth()));
+    }
+    await loadFile(relPath);
+  }
+  function hidePreview() {
+    const p = pane();
+    if (!p || !p.classList.contains("open")) return;
+    p.classList.remove("open");
+    const l = listEl();
+    if (l) {
+      l.style.flex = "";
+      l.style.width = "";
+    }
+    if (openedBaseWidth > 0) setSidebarWidth(openedBaseWidth);
+    openedBaseWidth = 0;
+  }
+  function dismissPreview() {
+    currentRelPath = "";
+    hidePreview();
+  }
+  function restorePreview() {
+    if (!currentRelPath) return;
+    openPreview(currentRelPath);
+  }
+  var PREVIEW_W_KEY, MIN_PREVIEW_W, MIN_TREE_W, openedBaseWidth, currentRelPath;
+  var init_preview = __esm({
+    "src/ui/shell/scripts/preview.ts"() {
+      "use strict";
+      init_shared();
+      init_preview_monaco();
+      PREVIEW_W_KEY = "cuckoo-preview-width";
+      MIN_PREVIEW_W = 180;
+      MIN_TREE_W = 120;
+      openedBaseWidth = 0;
+      currentRelPath = "";
+      document.getElementById("ck-preview-close")?.addEventListener("click", dismissPreview);
+      document.getElementById("ck-preview-ext")?.addEventListener("click", () => {
+        if (currentRelPath && api.openFileExternal) api.openFileExternal(currentRelPath).catch(() => {
+        });
+      });
+      {
+        const p = pane();
+        if (p) {
+          const rz = document.createElement("div");
+          rz.className = "ck-preview-resizer";
+          rz.title = "\u62D6\u52A8\u8C03\u6574\uFF1A\u6587\u4EF6\u6811 / \u5185\u5BB9\u533A";
+          p.appendChild(rz);
+          rz.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            const startX = e.clientX;
+            const l = listEl();
+            const cols = colsEl();
+            if (!l || !cols) return;
+            const startTreeW = l.getBoundingClientRect().width;
+            const totalW = cols.getBoundingClientRect().width;
+            const onMove = (ev) => {
+              let treeW = Math.round(startTreeW + (ev.clientX - startX));
+              const maxTree = Math.max(MIN_TREE_W, totalW - MIN_PREVIEW_W);
+              if (treeW < MIN_TREE_W) treeW = MIN_TREE_W;
+              if (treeW > maxTree) treeW = maxTree;
+              l.style.flex = "0 0 " + treeW + "px";
+              l.style.width = treeW + "px";
+            };
+            const onUp = () => {
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+              const treeW = l.getBoundingClientRect().width;
+              savePreviewWidth(Math.max(MIN_PREVIEW_W, Math.round(totalW - treeW)));
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+          });
+        }
+      }
+    }
+  });
+
+  // src/ui/shell/scripts/main.ts
+  init_shared();
 
   // src/ui/shell/scripts/sidebar.ts
+  init_shared();
+  init_preview();
   var abItems = document.querySelectorAll(".ck-ab-item");
   var tabs = document.querySelectorAll(".ck-tab");
   var sidebar = document.getElementById("ck-sidebar");
@@ -1697,6 +2227,10 @@
   function setCollapsed(collapsed) {
     if (!sidebar) return;
     if (collapsed) {
+      try {
+        hidePreview();
+      } catch (_) {
+      }
       sidebar.classList.add("ck-collapsed");
       sidebar.style.width = "";
       if (api.toggleSidebar) api.toggleSidebar(SIDEBAR_COLLAPSED);
@@ -1713,6 +2247,8 @@
       if (p.dataset.panel === tab) p.classList.add("ck-tab-active");
       else p.classList.remove("ck-tab-active");
     });
+    if (tab === "files") restorePreview();
+    else hidePreview();
   }
   abItems.forEach((item) => {
     item.addEventListener("click", () => {
@@ -1759,6 +2295,7 @@
   }
 
   // src/ui/shell/scripts/toolbar.ts
+  init_shared();
   var input = document.getElementById("url-input");
   var btnBack = document.getElementById("btn-back");
   var btnForward = document.getElementById("btn-forward");
@@ -1852,7 +2389,11 @@
     if (api.home) api.home();
   });
 
+  // src/ui/shell/scripts/main.ts
+  init_preview();
+
   // src/ui/shell/scripts/platform.ts
+  init_shared();
   function setPlatformSelectingMode(selecting) {
     const sb = document.getElementById("ck-sidebar");
     if (sb) {
@@ -1867,6 +2408,7 @@
   if (api.onPlatformMode) api.onPlatformMode((d) => setPlatformSelectingMode(d && d.selecting));
 
   // src/ui/shell/scripts/pages/workspaces.ts
+  init_shared();
   function baseName(dir) {
     if (!dir) return "\u672A\u547D\u540D";
     const parts = String(dir).replace(/[\\/]+$/, "").split(/[\\/]/);
@@ -1968,8 +2510,8 @@
     const tip = document.getElementById("ws-tip");
     if (tip) tip.style.display = "none";
   }
-  function bindWorkspaceEvents(listEl) {
-    listEl.querySelectorAll(".ck-ws-group-title").forEach((el) => {
+  function bindWorkspaceEvents(listEl2) {
+    listEl2.querySelectorAll(".ck-ws-group-title").forEach((el) => {
       el.addEventListener("click", () => {
         const groupEl = el.closest(".ck-ws-group");
         if (!groupEl) return;
@@ -1979,7 +2521,7 @@
         else expandedDirs.delete(dir);
       });
     });
-    listEl.querySelectorAll(".ck-ws-archived-title").forEach((el) => {
+    listEl2.querySelectorAll(".ck-ws-archived-title").forEach((el) => {
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         const boxEl = el.closest(".ck-ws-archived");
@@ -1990,21 +2532,21 @@
         else archivedOpen.delete(dir);
       });
     });
-    listEl.querySelectorAll(".ck-ws-archived-projects-title").forEach((el) => {
+    listEl2.querySelectorAll(".ck-ws-archived-projects-title").forEach((el) => {
       el.addEventListener("click", () => {
         const boxEl = el.closest(".ck-ws-archived-projects");
         if (!boxEl) return;
         archivedProjectsOpen.v = boxEl.classList.toggle("open");
       });
     });
-    listEl.querySelectorAll(".ck-ws-group-title").forEach((el) => {
+    listEl2.querySelectorAll(".ck-ws-group-title").forEach((el) => {
       el.addEventListener("mouseenter", () => {
         const groupEl = el.closest(".ck-ws-group");
         if (groupEl) showDirTip(groupEl.dataset.dir, el);
       });
       el.addEventListener("mouseleave", hideDirTip);
     });
-    listEl.querySelectorAll(".ck-ws-gact").forEach((btn) => {
+    listEl2.querySelectorAll(".ck-ws-gact").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         const groupEl = btn.closest(".ck-ws-group");
@@ -2034,7 +2576,7 @@
         }
       });
     });
-    listEl.querySelectorAll(".ck-ws-expand").forEach((el) => {
+    listEl2.querySelectorAll(".ck-ws-expand").forEach((el) => {
       if (el.classList.contains("ck-ws-expand-hidden")) return;
       el.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -2047,7 +2589,7 @@
         loadWorkspaces();
       });
     });
-    listEl.querySelectorAll(".ck-ws-subgroup-title").forEach((el) => {
+    listEl2.querySelectorAll(".ck-ws-subgroup-title").forEach((el) => {
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         const key = el.dataset.subgroup;
@@ -2057,7 +2599,7 @@
         loadWorkspaces();
       });
     });
-    listEl.querySelectorAll(".ck-ws-item").forEach((el) => {
+    listEl2.querySelectorAll(".ck-ws-item").forEach((el) => {
       el.addEventListener("click", async (e) => {
         if (e.target.closest('[data-act="rename"]')) {
           e.stopPropagation();
@@ -2105,8 +2647,8 @@
     });
   }
   async function loadWorkspaces() {
-    const listEl = document.getElementById("ws-list");
-    if (!listEl || !api.listAllSessions) return;
+    const listEl2 = document.getElementById("ws-list");
+    if (!listEl2 || !api.listAllSessions) return;
     try {
       if (api.getProjectDir) {
         try {
@@ -2120,7 +2662,7 @@
       const currentSessionId = r && r.currentSessionId || null;
       archivedProjects = r && Array.isArray(r.archivedProjects) ? r.archivedProjects : [];
       if (sessions.length === 0) {
-        listEl.innerHTML = '<div class="ck-list-empty">\u6682\u65E0\u4F1A\u8BDD</div>';
+        listEl2.innerHTML = '<div class="ck-list-empty">\u6682\u65E0\u4F1A\u8BDD</div>';
         return;
       }
       const byId = {};
@@ -2188,10 +2730,10 @@
       if (archivedDirs.length) {
         html += '<div class="ck-ws-archived-projects' + (archivedProjectsOpen.v ? " open" : "") + '"><div class="ck-ws-archived-projects-title">\u5DF2\u5F52\u6863 ' + archivedDirs.length + ' \u9879\u76EE</div><div class="ck-ws-archived-projects-items">' + archivedDirs.map((d) => renderGroup(d)).join("") + "</div></div>";
       }
-      listEl.innerHTML = html;
-      bindWorkspaceEvents(listEl);
+      listEl2.innerHTML = html;
+      bindWorkspaceEvents(listEl2);
     } catch (_) {
-      listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
+      listEl2.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
     }
   }
   document.getElementById("ws-refresh")?.addEventListener("click", loadWorkspaces);
@@ -2217,6 +2759,7 @@
   }
 
   // src/ui/shell/scripts/pages/files.ts
+  init_shared();
   var expanded = /* @__PURE__ */ new Set();
   var cachedTree = [];
   var cachedTruncated = false;
@@ -2422,8 +2965,8 @@
       return '<div class="ck-ft-row ' + cls + '" data-path="' + escapeAttr(n.path) + '" title="' + escapeAttr(n.path) + '">' + iconHtml(n.name, n.type) + '<span class="' + nameClass(n.name, n.type) + '">' + highlight(n.name, kw) + '</span><span class="ck-ft-path">' + highlight(n.path, kw) + "</span>" + atBtn(n.path) + "</div>";
     }).join("") + (matched.length > 500 ? '<div class="ck-ft-truncated">\uFF08\u7ED3\u679C\u8FC7\u591A\uFF0C\u4EC5\u663E\u793A\u524D 500 \u9879\uFF09</div>' : "");
   }
-  function bindRowEvents(listEl) {
-    listEl.querySelectorAll(".ck-ft-at").forEach((el) => {
+  function bindRowEvents(listEl2) {
+    listEl2.querySelectorAll(".ck-ft-at").forEach((el) => {
       el.addEventListener("click", async (e) => {
         e.stopPropagation();
         const p = el.dataset.at;
@@ -2434,12 +2977,24 @@
         }
       });
     });
-    listEl.querySelectorAll(".ck-ft-dir").forEach((el) => {
+    listEl2.querySelectorAll(".ck-ft-dir").forEach((el) => {
       el.addEventListener("click", () => {
         const p = el.dataset.path;
         if (expanded.has(p)) expanded.delete(p);
         else expanded.add(p);
         loadFiles();
+      });
+    });
+    listEl2.querySelectorAll(".ck-ft-file").forEach((el) => {
+      el.addEventListener("click", async (e) => {
+        if (e.target.closest(".ck-ft-at")) return;
+        const p = el.dataset.path;
+        if (!p) return;
+        try {
+          const { openPreview: openPreview2 } = await Promise.resolve().then(() => (init_preview(), preview_exports));
+          await openPreview2(p);
+        } catch (_) {
+        }
       });
     });
   }
@@ -2448,12 +3003,12 @@
     return s ? String(s.value || "").trim() : "";
   }
   async function loadFiles() {
-    const listEl = document.getElementById("ft-list");
-    if (!listEl || !api.listProjectTree) return;
+    const listEl2 = document.getElementById("ft-list");
+    if (!listEl2 || !api.listProjectTree) return;
     try {
       const r = await api.listProjectTree();
       if (!r || !r.success) {
-        listEl.innerHTML = '<div class="ck-list-empty">' + escapeHtml(r && r.error || "\u52A0\u8F7D\u5931\u8D25") + "</div>";
+        listEl2.innerHTML = '<div class="ck-list-empty">' + escapeHtml(r && r.error || "\u52A0\u8F7D\u5931\u8D25") + "</div>";
         return;
       }
       const rootEl = document.getElementById("ft-root");
@@ -2464,23 +3019,23 @@
       }
       cachedTree = r.tree || [];
       cachedTruncated = !!r.truncated;
-      renderList(listEl);
+      renderList(listEl2);
     } catch (_) {
-      listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
+      listEl2.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
     }
   }
-  function renderList(listEl) {
+  function renderList(listEl2) {
     const kw = currentKeyword();
     if (kw) {
-      listEl.innerHTML = renderSearch(kw);
+      listEl2.innerHTML = renderSearch(kw);
     } else {
       if (cachedTree.length === 0) {
-        listEl.innerHTML = '<div class="ck-list-empty">\u7A7A\u76EE\u5F55</div>';
+        listEl2.innerHTML = '<div class="ck-list-empty">\u7A7A\u76EE\u5F55</div>';
         return;
       }
-      listEl.innerHTML = renderNodes(cachedTree, 0) + (cachedTruncated ? '<div class="ck-ft-truncated">\uFF08\u8282\u70B9\u8FC7\u591A\uFF0C\u5DF2\u622A\u65AD\u663E\u793A\uFF09</div>' : "");
+      listEl2.innerHTML = renderNodes(cachedTree, 0) + (cachedTruncated ? '<div class="ck-ft-truncated">\uFF08\u8282\u70B9\u8FC7\u591A\uFF0C\u5DF2\u622A\u65AD\u663E\u793A\uFF09</div>' : "");
     }
-    bindRowEvents(listEl);
+    bindRowEvents(listEl2);
   }
   document.getElementById("ft-refresh")?.addEventListener("click", loadFiles);
   {
@@ -2490,15 +3045,15 @@
       searchEl.addEventListener("input", () => {
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => {
-          const listEl = document.getElementById("ft-list");
-          if (listEl) renderList(listEl);
+          const listEl2 = document.getElementById("ft-list");
+          if (listEl2) renderList(listEl2);
         }, 150);
       });
       searchEl.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
           searchEl.value = "";
-          const listEl = document.getElementById("ft-list");
-          if (listEl) renderList(listEl);
+          const listEl2 = document.getElementById("ft-list");
+          if (listEl2) renderList(listEl2);
         }
       });
     }
@@ -2510,7 +3065,11 @@
     });
   }
 
+  // src/ui/shell/scripts/pages/snippets.ts
+  init_shared();
+
   // src/ui/shell/scripts/recent.ts
+  init_shared();
   var KEY = "cuckoo-shell-recent-tools";
   var MAX = 5;
   function snippetText(type, name) {
@@ -2604,17 +3163,17 @@
     renderSnippets();
   }
   function renderSnippets() {
-    const listEl = document.getElementById("snip-list");
-    if (!listEl) return;
+    const listEl2 = document.getElementById("snip-list");
+    if (!listEl2) return;
     if (!snippets.length) {
-      listEl.innerHTML = '<div class="ck-list-empty">\u8FD8\u6CA1\u6709\u63D0\u793A\u8BCD\uFF0C\u70B9\u4E0A\u65B9\u65B0\u5EFA</div>';
+      listEl2.innerHTML = '<div class="ck-list-empty">\u8FD8\u6CA1\u6709\u63D0\u793A\u8BCD\uFF0C\u70B9\u4E0A\u65B9\u65B0\u5EFA</div>';
       return;
     }
-    listEl.innerHTML = snippets.map((s) => {
+    listEl2.innerHTML = snippets.map((s) => {
       const badge = s.autoSend ? '<span class="ck-snip-badge">\u81EA\u52A8\u53D1\u9001</span>' : "";
       return '<div class="ck-snip-item" data-id="' + escapeAttr(s.id) + '"><div class="ck-snip-top"><span class="ck-snip-name">' + escapeHtml(s.name) + badge + '</span><div class="ck-snip-actions"><button class="ck-snip-icon-btn" data-edit="' + escapeAttr(s.id) + '" title="\u7F16\u8F91"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button><button class="ck-snip-icon-btn danger" data-del="' + escapeAttr(s.id) + '" title="\u5220\u9664"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button></div></div><span class="ck-snip-preview">' + escapeHtml(s.content) + "</span></div>";
     }).join("");
-    listEl.querySelectorAll(".ck-snip-item").forEach((el) => {
+    listEl2.querySelectorAll(".ck-snip-item").forEach((el) => {
       el.addEventListener("click", async (e) => {
         if (e.target.closest("[data-edit]") || e.target.closest("[data-del]")) return;
         const s = snippets.filter((x) => x.id === el.dataset.id)[0];
@@ -2626,14 +3185,14 @@
         addRecent("snippet", s.name, { payload: s.content, autoSend: s.autoSend });
       });
     });
-    listEl.querySelectorAll("[data-edit]").forEach((btn) => {
+    listEl2.querySelectorAll("[data-edit]").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         const s = snippets.filter((x) => x.id === btn.dataset.edit)[0];
         if (s) openSnipModal(s);
       });
     });
-    listEl.querySelectorAll("[data-del]").forEach((btn) => {
+    listEl2.querySelectorAll("[data-del]").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         const id = btn.dataset.del;
@@ -2712,14 +3271,15 @@
   document.getElementById("snip-refresh")?.addEventListener("click", loadSnippets);
 
   // src/ui/shell/scripts/pages/skills.ts
+  init_shared();
   async function loadSkills() {
-    const listEl = document.getElementById("skill-list");
-    if (!listEl || !api.listSkills) return;
+    const listEl2 = document.getElementById("skill-list");
+    if (!listEl2 || !api.listSkills) return;
     try {
       const r = await api.listSkills();
       const skills = r && r.success ? r.skills : [];
       if (!skills || skills.length === 0) {
-        listEl.innerHTML = '<div class="ck-list-empty">\u672A\u53D1\u73B0\u6280\u80FD<br>\uFF08.cuckoo/skills/ \u6216 ~/.cuckoo/skills/\uFF09</div>';
+        listEl2.innerHTML = '<div class="ck-list-empty">\u672A\u53D1\u73B0\u6280\u80FD<br>\uFF08.cuckoo/skills/ \u6216 ~/.cuckoo/skills/\uFF09</div>';
         return;
       }
       const skillCard = (s) => '<div class="ck-skill-item" data-name="' + escapeHtml(s.name) + '"><div class="ck-skill-top"><span class="ck-skill-name">' + escapeHtml(s.name) + '</span></div><div class="ck-skill-desc">' + escapeHtml(s.description || "\uFF08\u65E0\u63CF\u8FF0\uFF09") + "</div></div>";
@@ -2728,8 +3288,8 @@
       let html = "";
       if (userSkills.length) html += '<div class="ck-mcp-group-title">\u7528\u6237\u7EA7</div>' + userSkills.map(skillCard).join("");
       if (projSkills.length) html += '<div class="ck-mcp-group-title">\u9879\u76EE\u7EA7</div>' + projSkills.map(skillCard).join("");
-      listEl.innerHTML = html;
-      listEl.querySelectorAll(".ck-skill-item").forEach((el) => {
+      listEl2.innerHTML = html;
+      listEl2.querySelectorAll(".ck-skill-item").forEach((el) => {
         el.addEventListener("click", async () => {
           if (api.appendSnippet) {
             try {
@@ -2741,20 +3301,21 @@
         });
       });
     } catch (_) {
-      listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
+      listEl2.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
     }
   }
   document.getElementById("skill-refresh")?.addEventListener("click", loadSkills);
 
   // src/ui/shell/scripts/pages/agents.ts
+  init_shared();
   async function loadAgents() {
-    const listEl = document.getElementById("agent-list");
-    if (!listEl || !api.listAgents) return;
+    const listEl2 = document.getElementById("agent-list");
+    if (!listEl2 || !api.listAgents) return;
     try {
       const r = await api.listAgents();
       const agents = r && r.success ? r.agents : [];
       if (!agents || agents.length === 0) {
-        listEl.innerHTML = '<div class="ck-list-empty">\u672A\u53D1\u73B0\u5B50\u4EE3\u7406<br>\uFF08.cuckoo/agents/ \u6216 ~/.cuckoo/agents/\uFF09</div>';
+        listEl2.innerHTML = '<div class="ck-list-empty">\u672A\u53D1\u73B0\u5B50\u4EE3\u7406<br>\uFF08.cuckoo/agents/ \u6216 ~/.cuckoo/agents/\uFF09</div>';
         return;
       }
       const agentCard = (a) => '<div class="ck-skill-item ck-agent-item" data-name="' + escapeHtml(a.name) + '" data-path="' + escapeAttr(a.agentPath) + '"><div class="ck-skill-top"><span class="ck-skill-name">' + escapeHtml(a.name) + '</span><div class="ck-agent-actions"><button class="ck-snip-icon-btn" data-edit-agent="' + escapeAttr(a.agentPath) + '" title="\u7F16\u8F91"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button><button class="ck-snip-icon-btn danger" data-del-agent="' + escapeAttr(a.agentPath) + '" title="\u5220\u9664"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button></div></div><div class="ck-skill-desc">' + escapeHtml(a.description || "\uFF08\u65E0\u63CF\u8FF0\uFF09") + "</div></div>";
@@ -2763,8 +3324,8 @@
       let html = "";
       if (userAgents.length) html += '<div class="ck-mcp-group-title">\u7528\u6237\u7EA7</div>' + userAgents.map(agentCard).join("");
       if (projAgents.length) html += '<div class="ck-mcp-group-title">\u9879\u76EE\u7EA7</div>' + projAgents.map(agentCard).join("");
-      listEl.innerHTML = html;
-      listEl.querySelectorAll(".ck-skill-item").forEach((el) => {
+      listEl2.innerHTML = html;
+      listEl2.querySelectorAll(".ck-skill-item").forEach((el) => {
         el.addEventListener("click", async (e) => {
           if (e.target.closest("[data-edit-agent]") || e.target.closest("[data-del-agent]")) return;
           if (api.appendSnippet) {
@@ -2776,14 +3337,14 @@
           addRecent("agent", el.dataset.name);
         });
       });
-      listEl.querySelectorAll("[data-edit-agent]").forEach((btn) => {
+      listEl2.querySelectorAll("[data-edit-agent]").forEach((btn) => {
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
           const cardEl = btn.closest(".ck-agent-item");
           openAgentEditModal(btn.dataset.editAgent, cardEl ? cardEl.dataset.name : "");
         });
       });
-      listEl.querySelectorAll("[data-del-agent]").forEach((btn) => {
+      listEl2.querySelectorAll("[data-del-agent]").forEach((btn) => {
         btn.addEventListener("click", async (e) => {
           e.stopPropagation();
           if (!await ckConfirm("\u786E\u5B9A\u5220\u9664\u8BE5\u5B50\u4EE3\u7406\u6587\u4EF6\uFF1F\u6B64\u64CD\u4F5C\u4E0D\u53EF\u6062\u590D\u3002")) return;
@@ -2798,7 +3359,7 @@
         });
       });
     } catch (_) {
-      listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
+      listEl2.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
     }
   }
   var agentEditPath = "";
@@ -2888,14 +3449,15 @@
   });
 
   // src/ui/shell/scripts/pages/mcp.ts
+  init_shared();
   async function loadMcpServers() {
-    const listEl = document.getElementById("mcp-list");
-    if (!listEl || !api.listMcpServers) return;
+    const listEl2 = document.getElementById("mcp-list");
+    if (!listEl2 || !api.listMcpServers) return;
     try {
       const r = await api.listMcpServers();
       const servers = r && r.success ? r.servers : [];
       if (!servers || servers.length === 0) {
-        listEl.innerHTML = '<div class="ck-list-empty">\u672A\u914D\u7F6E MCP server</div>';
+        listEl2.innerHTML = '<div class="ck-list-empty">\u672A\u914D\u7F6E MCP server</div>';
         return;
       }
       const cardHtml = (s) => {
@@ -2907,8 +3469,8 @@
       let html = "";
       if (userServers.length) html += '<div class="ck-mcp-group-title">\u7528\u6237\u7EA7</div>' + userServers.map(cardHtml).join("");
       if (projServers.length) html += '<div class="ck-mcp-group-title">\u9879\u76EE\u7EA7</div>' + projServers.map(cardHtml).join("");
-      listEl.innerHTML = html;
-      listEl.querySelectorAll(".ck-mcp-item").forEach((el) => {
+      listEl2.innerHTML = html;
+      listEl2.querySelectorAll(".ck-mcp-item").forEach((el) => {
         el.addEventListener("click", async () => {
           if (api.appendSnippet) {
             try {
@@ -2920,12 +3482,13 @@
         });
       });
     } catch (_) {
-      listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
+      listEl2.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
     }
   }
   document.getElementById("mcp-refresh")?.addEventListener("click", loadMcpServers);
 
   // src/ui/shell/scripts/pages/token.ts
+  init_shared();
   var contextEl = document.getElementById("sb-context");
   var cumulativeEl = document.getElementById("sb-cumulative");
   var windowEl = document.getElementById("sb-window");
@@ -2965,6 +3528,13 @@
       if (tkToday) tkToday.textContent = formatTokenCount(data.todayCumulative);
       if (tkWindow) tkWindow.textContent = formatTokenCount(data.windowCumulative);
       if (data.daily) renderChart(data.daily);
+    });
+  }
+  var tpsEl = document.getElementById("sb-tps");
+  if (api.onTpsUpdated) {
+    api.onTpsUpdated((data) => {
+      const t = data && data.tps ? String(data.tps) : "";
+      if (tpsEl) tpsEl.textContent = t || "--";
     });
   }
   if (api.onTotalUpdated) {
@@ -3045,6 +3615,7 @@
   });
 
   // src/ui/shell/scripts/pages/about.ts
+  init_shared();
   async function loadAbout() {
     if (api.getAppInfo) {
       try {
@@ -3080,6 +3651,7 @@
   });
 
   // src/ui/shell/scripts/pages/feishu.ts
+  init_shared();
   function renderFeishuStatus(status, detail) {
     const dot = document.getElementById("fs-dot");
     const txt = document.getElementById("fs-status-text");
@@ -3233,6 +3805,7 @@
   });
 
   // src/ui/shell/scripts/pages/windows.ts
+  init_shared();
   var PROVIDER_COLORS = {
     deepseek: "linear-gradient(135deg, #4d6bfe, #3b5bdb)",
     claude: "linear-gradient(135deg, #d97757, #c05a3a)",
@@ -3241,14 +3814,21 @@
   function providerAvatarStyle(providerId) {
     return PROVIDER_COLORS[providerId] || "";
   }
+  function renderWindowItem(p, providerMap) {
+    const pname = providerMap[p.providerId] || "\u672A\u9009\u5E73\u53F0";
+    const checked = p.autoOpen === true ? " checked" : "";
+    const initial = (p.name || "?").trim().charAt(0).toUpperCase();
+    const avatarStyle = providerAvatarStyle(p.providerId);
+    return '<div class="ck-win-item" data-profile-id="' + escapeHtml(p.id) + '"><div class="ck-win-top"><span class="ck-win-avatar"' + (avatarStyle ? ' style="background:' + avatarStyle + '"' : "") + ">" + escapeHtml(initial) + '</span><span class="ck-win-name">' + escapeHtml(p.name) + '</span><span class="ck-win-del" data-profile-id="' + escapeHtml(p.id) + '" title="\u5220\u9664\u7A97\u53E3">\u2715</span></div><div class="ck-win-bottom"><span class="ck-win-provider">' + escapeHtml(pname) + '</span><label class="ck-win-check' + (p.autoOpen === true ? " ck-win-check-on" : "") + '" title="\u542F\u52A8\u65F6\u9ED8\u8BA4\u6253\u5F00"><input type="checkbox" data-profile-id="' + escapeHtml(p.id) + '"' + checked + " />\u9ED8\u8BA4\u6253\u5F00</label></div></div>";
+  }
   async function renderWindowList() {
-    const listEl = document.getElementById("win-list");
-    if (!listEl || !api.listProfiles) return;
+    const listEl2 = document.getElementById("win-list");
+    if (!listEl2 || !api.listProfiles) return;
     try {
       const res = await api.listProfiles();
       const profiles = res && res.success ? res.profiles : [];
       if (!profiles || profiles.length === 0) {
-        listEl.innerHTML = '<div class="ck-list-empty">\u6682\u65E0\u7A97\u53E3</div>';
+        listEl2.innerHTML = '<div class="ck-list-empty">\u6682\u65E0\u7A97\u53E3</div>';
         return;
       }
       const providerMap = {};
@@ -3259,14 +3839,33 @@
         });
       } catch (_) {
       }
-      listEl.innerHTML = profiles.map((p) => {
-        const pname = providerMap[p.providerId] || "\u672A\u9009\u5E73\u53F0";
-        const checked = p.autoOpen === true ? " checked" : "";
-        const initial = (p.name || "?").trim().charAt(0).toUpperCase();
-        const avatarStyle = providerAvatarStyle(p.providerId);
-        return '<div class="ck-win-item" data-profile-id="' + escapeHtml(p.id) + '"><div class="ck-win-top"><span class="ck-win-avatar"' + (avatarStyle ? ' style="background:' + avatarStyle + '"' : "") + ">" + escapeHtml(initial) + '</span><span class="ck-win-name">' + escapeHtml(p.name) + '</span><span class="ck-win-del" data-profile-id="' + escapeHtml(p.id) + '" title="\u5220\u9664\u7A97\u53E3">\u2715</span></div><div class="ck-win-bottom"><span class="ck-win-provider">' + escapeHtml(pname) + '</span><label class="ck-win-check' + (p.autoOpen === true ? " ck-win-check-on" : "") + '" title="\u542F\u52A8\u65F6\u9ED8\u8BA4\u6253\u5F00"><input type="checkbox" data-profile-id="' + escapeHtml(p.id) + '"' + checked + " />\u9ED8\u8BA4\u6253\u5F00</label></div></div>";
-      }).join("");
-      listEl.querySelectorAll(".ck-win-check input").forEach((cb) => {
+      let groups = [];
+      try {
+        const gr = await api.wgList?.();
+        if (gr && gr.success) groups = gr.groups || [];
+      } catch (_) {
+      }
+      const inGroup = /* @__PURE__ */ new Set();
+      for (const g of groups) for (const w of g.windowIds || []) inGroup.add(w);
+      const byId = {};
+      for (const p of profiles) byId[p.id] = p;
+      let html = "";
+      for (const g of groups) {
+        const members = (g.windowIds || []).map((w) => byId[w]).filter(Boolean);
+        let lastLine = "";
+        if (g.lastWindowId) {
+          const lastWin = byId[g.lastWindowId];
+          const winName = lastWin ? lastWin.name : g.lastWindowId;
+          lastLine = '<div class="ck-wg-last" data-group-id="' + escapeAttr(g.id) + '" data-window-id="' + escapeAttr(g.lastWindowId) + '" data-session-id="' + escapeAttr(g.lastSessionId || "") + '" title="\u70B9\u51FB\u8DF3\u5230\u8BE5\u7A97\u53E3\u7684\u6700\u8FD1\u5BF9\u8BDD">\u6700\u8FD1\uFF1A' + escapeHtml(winName) + (g.lastSessionId ? "" : "") + "</div>";
+        }
+        html += '<div class="ck-wg" data-group-id="' + escapeAttr(g.id) + '"><div class="ck-wg-head"><span class="ck-wg-name">' + escapeHtml(g.name) + '</span><span class="ck-wg-switch" data-group-id="' + escapeAttr(g.id) + '" title="\u8F6C\u79FB\u5F53\u524D\u5BF9\u8BDD\u5230\u4E0B\u4E00\u7A97\u53E3">\u8F6C\u79FB\u5BF9\u8BDD</span><span class="ck-wg-manage" data-group-id="' + escapeAttr(g.id) + '" title="\u7BA1\u7406\u7EC4\uFF08\u6539\u540D\u3001\u589E\u5220\u7A97\u53E3\uFF09">\u7BA1\u7406</span><span class="ck-wg-del" data-group-id="' + escapeAttr(g.id) + '" title="\u5220\u9664\u7EC4">\u2715</span></div>' + lastLine + '<div class="ck-wg-body">' + members.map((p) => renderWindowItem(p, providerMap)).join("") + "</div></div>";
+      }
+      const ungrouped = profiles.filter((p) => !inGroup.has(p.id));
+      if (ungrouped.length) {
+        html += '<div class="ck-wg ck-wg-ungrouped"><div class="ck-wg-head"><span class="ck-wg-name">\u672A\u5206\u7EC4</span></div><div class="ck-wg-body">' + ungrouped.map((p) => renderWindowItem(p, providerMap)).join("") + "</div></div>";
+      }
+      listEl2.innerHTML = html;
+      listEl2.querySelectorAll(".ck-win-check input").forEach((cb) => {
         cb.addEventListener("click", (e) => e.stopPropagation());
         cb.addEventListener("change", async () => {
           const pid = cb.dataset.profileId;
@@ -3281,7 +3880,7 @@
           }
         });
       });
-      listEl.querySelectorAll(".ck-win-item").forEach((el) => {
+      listEl2.querySelectorAll(".ck-win-item").forEach((el) => {
         el.addEventListener("click", async (e) => {
           if (e.target.classList.contains("ck-win-del")) return;
           if (e.target.closest(".ck-win-check")) return;
@@ -3291,7 +3890,7 @@
           }
         });
       });
-      listEl.querySelectorAll(".ck-win-del").forEach((btn) => {
+      listEl2.querySelectorAll(".ck-win-del").forEach((btn) => {
         btn.addEventListener("click", async (e) => {
           e.stopPropagation();
           const pid = btn.dataset.profileId;
@@ -3304,9 +3903,145 @@
           }
         });
       });
+      listEl2.querySelectorAll(".ck-wg-switch").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const gid = btn.dataset.groupId;
+          if (!api.wgSwitch) return;
+          const oldText = btn.textContent;
+          btn.textContent = "\u8F6C\u79FB\u4E2D\u2026";
+          btn.style.pointerEvents = "none";
+          try {
+            const r = await api.wgSwitch(gid);
+            if (!r || !r.success) {
+              alert("\u5207\u6362\u5931\u8D25\uFF1A" + (r && r.error || "\u672A\u77E5\u9519\u8BEF"));
+            }
+          } catch (err) {
+            alert("\u5207\u6362\u5931\u8D25\uFF1A" + (err.message || String(err)));
+          } finally {
+            btn.textContent = oldText;
+            btn.style.pointerEvents = "";
+            renderWindowList();
+          }
+        });
+      });
+      listEl2.querySelectorAll(".ck-wg-del").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const gid = btn.dataset.groupId;
+          if (!await ckConfirm("\u786E\u5B9A\u5220\u9664\u8BE5\u7A97\u53E3\u7EC4\uFF1F\uFF08\u7A97\u53E3\u672C\u8EAB\u4E0D\u5220\uFF09")) return;
+          try {
+            await api.wgDelete?.(gid);
+            renderWindowList();
+          } catch (_) {
+          }
+        });
+      });
+      listEl2.querySelectorAll(".ck-wg-manage").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const gid = btn.dataset.groupId;
+          const g = groups.find((x) => x.id === gid);
+          if (g) await openGroupManager(g, profiles);
+        });
+      });
+      listEl2.querySelectorAll(".ck-wg-last").forEach((el) => {
+        el.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const wid = el.dataset.windowId;
+          const sid = el.dataset.sessionId;
+          if (!wid) return;
+          try {
+            await api.openProfileWindow?.(wid);
+            if (sid && api.navigateSession) {
+              try {
+                await api.navigateSession(sid);
+              } catch (_) {
+              }
+            }
+          } catch (_) {
+          }
+        });
+      });
     } catch (_) {
-      listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
+      listEl2.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
     }
+  }
+  async function openGroupManager(group, profiles) {
+    const mask = document.getElementById("wg-modal");
+    const nameEl = document.getElementById("wg-modal-name");
+    const membersEl = document.getElementById("wg-modal-members");
+    const addSel = document.getElementById("wg-modal-add");
+    const cancelBtn = document.getElementById("wg-modal-cancel");
+    const saveBtn = document.getElementById("wg-modal-save");
+    if (!mask || !nameEl || !membersEl || !addSel) return;
+    let members = Array.isArray(group.windowIds) ? group.windowIds.slice() : [];
+    const byId = {};
+    for (const p of profiles) byId[p.id] = p;
+    const renderMembers = () => {
+      membersEl.innerHTML = members.length ? members.map((id) => {
+        const w = byId[id];
+        return '<div class="ck-wg-member" data-id="' + escapeAttr(id) + '"><span class="ck-wg-member-name">' + escapeHtml(w ? w.name : id) + '</span><span class="ck-wg-member-del" data-id="' + escapeAttr(id) + '" title="\u79FB\u9664">\u2715</span></div>';
+      }).join("") : '<div class="ck-wg-member-empty">\uFF08\u6682\u65E0\u7A97\u53E3\uFF09</div>';
+      membersEl.querySelectorAll(".ck-wg-member-del").forEach((b) => {
+        b.addEventListener("click", () => {
+          members = members.filter((x) => x !== b.dataset.id);
+          renderMembers();
+          renderAddOptions();
+        });
+      });
+    };
+    const renderAddOptions = () => {
+      const avail = profiles.filter((p) => !members.includes(p.id));
+      addSel.innerHTML = '<option value="">\uFF08\u9009\u62E9\u8981\u52A0\u5165\u7684\u7A97\u53E3\u2026\uFF09</option>' + avail.map((p) => '<option value="' + escapeAttr(p.id) + '">' + escapeHtml(p.name) + "</option>").join("");
+    };
+    nameEl.value = group.name || "";
+    renderMembers();
+    renderAddOptions();
+    mask.classList.remove("cuckoo-hidden");
+    setTimeout(() => nameEl.focus(), 50);
+    const onAdd = () => {
+      const id = addSel.value;
+      if (id && !members.includes(id)) {
+        members.push(id);
+        renderMembers();
+        renderAddOptions();
+      }
+    };
+    const cleanup = () => {
+      mask.classList.add("cuckoo-hidden");
+      cancelBtn.removeEventListener("click", onCancel);
+      saveBtn.removeEventListener("click", onSave);
+      addSel.removeEventListener("change", onAdd);
+      mask.removeEventListener("click", onMask);
+    };
+    const onCancel = () => {
+      cleanup();
+    };
+    const onMask = (e) => {
+      if (e.target === mask) cleanup();
+    };
+    const onSave = async () => {
+      try {
+        const newName = String(nameEl.value || "").trim();
+        if (newName && newName !== group.name) await api.wgRename?.(group.id, newName);
+        const cur = (group.windowIds || []).slice();
+        for (const id of cur) {
+          if (!members.includes(id)) await api.wgRemoveWindow?.(group.id, id);
+        }
+        for (const id of members) {
+          if (!cur.includes(id)) await api.wgAddWindow?.(group.id, id);
+        }
+        cleanup();
+        renderWindowList();
+      } catch (_) {
+        cleanup();
+      }
+    };
+    addSel.addEventListener("change", onAdd);
+    cancelBtn.addEventListener("click", onCancel);
+    saveBtn.addEventListener("click", onSave);
+    mask.addEventListener("click", onMask);
   }
   document.getElementById("win-new")?.addEventListener("click", async () => {
     try {
@@ -3316,8 +4051,18 @@
     }
   });
   document.getElementById("win-refresh")?.addEventListener("click", renderWindowList);
+  document.getElementById("wg-new")?.addEventListener("click", async () => {
+    const name = await ckPrompt({ title: "\u65B0\u5EFA\u7A97\u53E3\u7EC4", placeholder: "\u7EC4\u540D\uFF08\u5982\uFF1A\u4E3B\u529B\u8D26\u53F7\u7EC4\uFF09", value: "" });
+    if (name === null) return;
+    try {
+      await api.wgCreate?.(name.trim() || void 0);
+      renderWindowList();
+    } catch (_) {
+    }
+  });
 
   // src/ui/shell/scripts/pages/settings.ts
+  init_shared();
   var SET_FIELDS = [
     ["retry-delay-min", "retryDelayMin"],
     ["retry-delay-max", "retryDelayMax"],
@@ -3345,6 +4090,8 @@
     if (!data) return;
     const enEl = document.getElementById("st-retry-enabled");
     if (enEl) enEl.checked = data.retryEnabled !== false;
+    const ssrfEl = document.getElementById("st-ssrf-guard");
+    if (ssrfEl) ssrfEl.checked = data.ssrfGuard === true;
     for (const [id, key] of SET_FIELDS) setVal(id, data[key]);
   }
   async function loadSettings() {
@@ -3361,8 +4108,10 @@
       return Number.isFinite(n) ? n : 0;
     };
     const enEl = document.getElementById("st-retry-enabled");
+    const ssrfEl = document.getElementById("st-ssrf-guard");
     return {
       retryEnabled: !!(enEl && enEl.checked),
+      ssrfGuard: !!(ssrfEl && ssrfEl.checked),
       retryDelayMin: num("retry-delay-min"),
       retryDelayMax: num("retry-delay-max"),
       retryCount: parseInt(getVal("retry-count"), 10) || 0,
@@ -3410,17 +4159,18 @@
   });
 
   // src/ui/shell/scripts/pages/conversations.ts
+  init_shared();
   var harnessBusy = false;
   function applyBusyState() {
-    const listEl = document.getElementById("conv-list");
-    if (!listEl) return;
-    listEl.querySelectorAll(".ck-conv-item").forEach((el) => {
+    const listEl2 = document.getElementById("conv-list");
+    if (!listEl2) return;
+    listEl2.querySelectorAll(".ck-conv-item").forEach((el) => {
       el.classList.toggle("ck-conv-disabled", harnessBusy);
     });
   }
   async function loadConversations(retainOnEmpty) {
-    const listEl = document.getElementById("conv-list");
-    if (!listEl || !api.listWebSessions) return;
+    const listEl2 = document.getElementById("conv-list");
+    if (!listEl2 || !api.listWebSessions) return;
     let res = null;
     try {
       res = await api.listWebSessions();
@@ -3431,21 +4181,21 @@
     const curUrl = res && res.currentUrl || "";
     if (!sessions.length) {
       if (retainOnEmpty) return;
-      if (listEl.querySelector(".ck-conv-item")) return;
-      listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u4E2D\u2026\uFF08\u82E5\u6301\u7EED\u4E3A\u7A7A\uFF0C\u8BF7\u70B9\u5237\u65B0\uFF09</div>';
+      if (listEl2.querySelector(".ck-conv-item")) return;
+      listEl2.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u4E2D\u2026\uFF08\u82E5\u6301\u7EED\u4E3A\u7A7A\uFF0C\u8BF7\u70B9\u5237\u65B0\uFF09</div>';
       return;
     }
-    listEl.innerHTML = sessions.map((s) => {
+    listEl2.innerHTML = sessions.map((s) => {
       const active = s.href === curUrl ? " ck-conv-active" : "";
       return '<div class="ck-conv-item' + active + '" data-url="' + escapeAttr(s.href) + '" title="' + escapeAttr(s.title) + '"><span class="ck-conv-title">' + escapeHtml(s.title) + "</span></div>";
     }).join("");
-    listEl.querySelectorAll(".ck-conv-item").forEach((el) => {
+    listEl2.querySelectorAll(".ck-conv-item").forEach((el) => {
       el.addEventListener("click", () => {
         if (harnessBusy) return;
         const url = el.getAttribute("data-url");
         if (url && api.navigateWebSession) {
           api.navigateWebSession(url);
-          listEl.querySelectorAll(".ck-conv-item").forEach((x) => x.classList.remove("ck-conv-active"));
+          listEl2.querySelectorAll(".ck-conv-item").forEach((x) => x.classList.remove("ck-conv-active"));
           el.classList.add("ck-conv-active");
         }
       });
@@ -3477,6 +4227,7 @@
   });
 
   // src/ui/shell/scripts/pages/plugins.ts
+  init_shared();
   var pluginMarketItems = [];
   var pluginMarketNotice = "";
   var pluginInstalled = {};
@@ -3496,11 +4247,12 @@
     if (c.rules && c.rules.length) parts.push("\u89C4\u5219 " + c.rules.length);
     if (c.mcp) parts.push("MCP");
     if (c.providers && c.providers.length) parts.push("\u53EF\u6267\u884C " + c.providers.length);
+    if (c.scripts && c.scripts.length) parts.push("\u7F51\u9875\u811A\u672C " + c.scripts.length);
     return parts.join(" \xB7 ");
   }
   function pluginHasExec(c) {
     if (!c) return false;
-    return !!(c.providers && c.providers.length > 0 || c.mcp);
+    return !!(c.providers && c.providers.length > 0 || c.mcp || c.scripts && c.scripts.length > 0);
   }
   function isNewerVersion(a, b) {
     if (!a || !b) return false;
@@ -3537,16 +4289,16 @@
     return '<div class="ck-plugin-meta">' + cells.join('<span class="sep">\xB7</span>') + "</div>";
   }
   async function loadInstalledPlugins() {
-    const listEl = document.getElementById("plugin-installed-list");
-    if (!listEl || !api.listInstalledPlugins) return;
+    const listEl2 = document.getElementById("plugin-installed-list");
+    if (!listEl2 || !api.listInstalledPlugins) return;
     try {
       const r = await api.listInstalledPlugins();
       const plugins = r && r.success ? r.plugins : [];
       if (!plugins.length) {
-        listEl.innerHTML = '<div class="ck-list-empty">\u8FD8\u6CA1\u6709\u5B89\u88C5\u63D2\u4EF6<br>\u4ECE\u4E0B\u65B9\u5E02\u573A\u5B89\u88C5</div>';
+        listEl2.innerHTML = '<div class="ck-list-empty">\u8FD8\u6CA1\u6709\u5B89\u88C5\u63D2\u4EF6<br>\u4ECE\u4E0B\u65B9\u5E02\u573A\u5B89\u88C5</div>';
         return;
       }
-      listEl.innerHTML = plugins.map((p) => {
+      listEl2.innerHTML = plugins.map((p) => {
         const hasExec = pluginHasExec(p.contributes);
         const swTitle = hasExec ? "\u542F\u7528\u540E\uFF1A\u6280\u80FD/\u4EE3\u7406/\u89C4\u5219 + MCP + \u53EF\u6267\u884C\u5185\u5BB9\u5168\u90E8\u751F\u6548" : "\u542F\u7528\u540E\uFF1A\u6280\u80FD/\u4EE3\u7406/\u89C4\u5219\u5168\u90E8\u751F\u6548";
         const sw = '<label class="ck-switch" title="' + escapeAttr(swTitle) + '"><input type="checkbox" data-toggle="' + escapeAttr(p.id) + '"' + (p.enabled ? " checked" : "") + ' /><span class="ck-switch-track"></span></label>';
@@ -3557,7 +4309,7 @@
         if (contrib) meta.push(escapeHtml(contrib));
         return '<div class="ck-plugin-item" data-plugin="' + escapeAttr(p.id) + '"><div class="ck-plugin-head"><span class="ck-plugin-name">' + escapeHtml(p.name || p.id) + "</span>" + (hasExec ? '<span class="ck-plugin-badge update" title="\u542B\u53EF\u6267\u884C\u5185\u5BB9">\u542B\u53EF\u6267\u884C</span>' : "") + '<div class="ck-plugin-switch-row"><span class="ck-plugin-switch-label">' + (p.enabled ? "\u5DF2\u542F\u7528" : "\u5DF2\u7981\u7528") + "</span>" + sw + '</div><div class="ck-plugin-actions"><button class="ck-snip-icon-btn danger" data-uninstall="' + escapeAttr(p.id) + '" title="\u5378\u8F7D">' + ICON_TRASH + '</button></div></div><div class="ck-plugin-desc">' + escapeHtml(p.description || "\uFF08\u65E0\u63CF\u8FF0\uFF09") + "</div>" + pluginMetaHtml(meta) + "</div>";
       }).join("");
-      listEl.querySelectorAll("[data-uninstall]").forEach((btn) => {
+      listEl2.querySelectorAll("[data-uninstall]").forEach((btn) => {
         btn.addEventListener("click", async (e) => {
           e.stopPropagation();
           const id = btn.dataset.uninstall;
@@ -3571,7 +4323,7 @@
           await loadPlugins();
         });
       });
-      listEl.querySelectorAll("[data-toggle]").forEach((input2) => {
+      listEl2.querySelectorAll("[data-toggle]").forEach((input2) => {
         input2.addEventListener("change", async () => {
           const id = input2.dataset.toggle;
           const p = plugins.filter((x) => x.id === id)[0];
@@ -3601,19 +4353,19 @@
         });
       });
     } catch (_) {
-      listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
+      listEl2.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
     }
   }
   function renderPluginMarket() {
-    const listEl = document.getElementById("plugin-market-list");
-    if (!listEl) return;
+    const listEl2 = document.getElementById("plugin-market-list");
+    if (!listEl2) return;
     const notice = pluginMarketNotice ? '<div class="ck-list-empty">' + escapeHtml(pluginMarketNotice) + "</div>" : "";
     if (!pluginMarketItems.length) {
-      listEl.innerHTML = notice + '<div class="ck-list-empty">\u6682\u65E0\u63D2\u4EF6<br><br>\u7ED9\u4F60\u7684\u4ED3\u5E93\u6253\u4E0A <b>cuckoo-plugin</b> topic\uFF0C<br>\u5B83\u5C31\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC</div>';
+      listEl2.innerHTML = notice + '<div class="ck-list-empty">\u6682\u65E0\u63D2\u4EF6<br><br>\u7ED9\u4F60\u7684\u4ED3\u5E93\u6253\u4E0A <b>cuckoo-plugin</b> topic\uFF0C<br>\u5B83\u5C31\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC</div>';
       return;
     }
-    listEl.innerHTML = notice + pluginMarketItems.map(marketCardHtml).join("");
-    listEl.querySelectorAll("[data-install]").forEach((btn) => {
+    listEl2.innerHTML = notice + pluginMarketItems.map(marketCardHtml).join("");
+    listEl2.querySelectorAll("[data-install]").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         const id = btn.dataset.install;
@@ -3652,9 +4404,9 @@
     ]) + req + "</div>";
   }
   async function loadPluginMarket(force) {
-    const listEl = document.getElementById("plugin-market-list");
-    if (!listEl || !api.pluginMarketList) return;
-    listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u4E2D\u2026</div>';
+    const listEl2 = document.getElementById("plugin-market-list");
+    if (!listEl2 || !api.pluginMarketList) return;
+    listEl2.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u4E2D\u2026</div>';
     try {
       const r = await api.pluginMarketList({ force: !!force });
       if (!r || !r.success) {
@@ -3669,7 +4421,7 @@
       renderPluginMarket();
       loadRemoteManifests();
     } catch (_) {
-      listEl.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
+      listEl2.innerHTML = '<div class="ck-list-empty">\u52A0\u8F7D\u5931\u8D25</div>';
     }
   }
   async function loadRemoteManifests() {

@@ -16,11 +16,13 @@ import * as chatInput from '../overlay/chat-input.js';
 import * as settingsPanel from '../overlay/panels/settings.js';
 import { wireEvents } from '../overlay/events.js';
 import { getProviderByUrl } from '../providers/registry.js';
-import { startInterceptObserver, onInterceptedResponse, onTaskIdle } from './intercept/observer.js';
+import { startInterceptObserver, onInterceptedResponse, onTaskIdle, onStream } from './intercept/observer.js';
+import { shareAllForSwitch } from '../session/compaction.js';
 import { startRetryEngine } from './loop/retry.js';
 import { startSessionWatcher, startWatchdog, checkSessionChange } from './loop/watchdog.js';
 import { initSubagentIfNeeded } from './subagent.js';
 import { initHarnessBridge } from './harness-bridge.js';
+import { initProbeIfNeeded } from './probe.js';
 import { initFeishuBridge } from './feishu-bridge.js';
 
 const require = createRequire(import.meta.url);
@@ -54,8 +56,39 @@ if (useIntercept) {
 // 注册主进程消息监听（与原 preload.js 顶层注册时机一致）
 chatInput.registerIpcListeners();
 
+// ========== 插件"网页注入脚本"（scripts/*.js，按 URL 匹配注入主世界）==========
+// 与平台 provider 的 hook 相互独立：这里注入的是"页面增强/优化"脚本，
+// 因此可作用于内置平台（如 DeepSeek），不受"内置 provider 优先"限制。
+async function injectPluginWebScripts(): Promise<void> {
+  try {
+    const api = (window as any).electronAPI;
+    if (!api || typeof api.getPluginWebScripts !== 'function') return;
+    const r = await api.getPluginWebScripts();
+    const list = (r && r.success && r.scripts) || [];
+    if (!list.length) return;
+    const href = window.location.href;
+    for (const s of list) {
+      // match 支持：空(全部) / 正则字符串 / 子串
+      let matched = true;
+      if (s.match) {
+        try { matched = new RegExp(s.match).test(href); }
+        catch (_) { matched = href.indexOf(s.match) >= 0; }
+      }
+      if (!matched) continue;
+      try {
+        await webFrame.executeJavaScript(s.script);
+        console.log('[Cuckoo Code][插件脚本] 已注入: ' + s.name);
+      } catch (err: any) {
+        console.error('[Cuckoo Code][插件脚本] 注入失败 (' + s.name + '):', err && err.message);
+      }
+    }
+  } catch (err: any) {
+    console.error('[Cuckoo Code][插件脚本] 获取失败:', err && err.message);
+  }
+}
+
 // ========== P4.2-A：回调注入（overlay 不依赖 bridge）==========
-wireEvents({ onInterceptedResponse, onTaskIdle });
+wireEvents({ onInterceptedResponse, onTaskIdle, onStream });
 
 // ========== 初始化 ==========
 
@@ -162,6 +195,15 @@ function init(): void {
         ipcRenderer.send('cuckoo-autocompact-result', { reqId, ok: false, error: err.message });
       }
     });
+    // 窗口组切换：主进程请求"全量分享当前会话"，回执 shareId
+    ipcRenderer.on('cuckoo-switch-share', async (_e: any, { reqId }: any) => {
+      try {
+        const r = await shareAllForSwitch();
+        ipcRenderer.send('cuckoo-switch-share-result', { reqId, ok: true, shareId: r.shareId, sessionId: r.sessionId });
+      } catch (err: any) {
+        ipcRenderer.send('cuckoo-switch-share-result', { reqId, ok: false, error: err.message });
+      }
+    });
     // 追加文本到输入框末尾（MCP 名等，不发送）
     ipcRenderer.on('cuckoo-append-input', (_e: any, data: any) => {
       try {
@@ -208,6 +250,12 @@ function init(): void {
 
     // 飞书同步：上报用户消息/AI回复/工具状态，并接收飞书来消息
     initFeishuBridge();
+
+    // 窗口组探测：若本次导航带 cuckoo-probe 标记，发测试消息判限流
+    initProbeIfNeeded();
+
+    // 插件网页注入脚本（按 URL 匹配注入主世界）
+    injectPluginWebScripts();
   } catch (err) {
     console.error('[Cuckoo Code] init() 出错:', err);
     // 兜底：即使出错也强制显示面板

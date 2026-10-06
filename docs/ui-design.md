@@ -1,7 +1,10 @@
 # UI 设计规范（Cuckoo 侧边栏 / 壳窗口）
 
 > 本文件定义 Cuckoo Code **壳窗口 UI**（地址栏、状态条、左侧边栏）的设计规范。
-> **新页面照此实现**，保持一致。真源：\`src/ui/shell.html\`。
+> **新页面照此实现**，保持一致。
+>
+> ⚠️ **真源是 src/ui/shell/ 目录**（index.html + partials/ + scripts/ + styles/）。
+> src/ui/shell.html 是 build-shell.mjs 的**生成物**——改真源、跑 npm run compile，**别手改 shell.html**。
 
 ---
 
@@ -127,6 +130,22 @@ iOS 风格：38×22px，圆点 16px，激活蓝色。
 
 ---
 
+### 滚动条（全局统一）
+
+**不要逐个元素写滚动条样式**——在 base.css 全局定义一次，所有滚动区域（侧栏、文件树、预览区、列表等）自动统一：
+
+（CSS 见 base.css 顶部「全局滚动条」）
+
+**要点**：
+- **4px 细条**、**透明轨道**、**圆角 2px**（横竖一致）
+- 颜色用变量 `--ck-scroll-thumb` / `--ck-scroll-hover`（**自动跟随深浅色**）
+- **禁止**用 `scrollbar-width`（会让 webkit 自定义样式**失效**，回退成系统粗条）
+
+---
+
+
+---
+
 ## 五、图标
 
 - **一律用 SVG 线条图标**（\`fill: none; stroke: currentColor; stroke-width: 2\`）
@@ -170,4 +189,6 @@ iOS 风格：38×22px，圆点 16px，激活蓝色。
 - ❌ 粗边框（用淡边框 + 阴影）
 - ❌ emoji 当图标
 - ❌ 手动切换深浅色（跟随系统）
+- ❌ 逐个元素写滚动条样式（统一在 base.css 全局定义）
+- ❌ 用 `scrollbar-width`（会让 `::-webkit-scrollbar` 失效）
 - ❌ 过小间距（\`gap\` ≥ 8px，面板 \`gap\` 14px）

@@ -10,11 +10,11 @@
 | 项 | 值 |
 |---|---|
 | 定制版名称 | Cuckoo Code Flash |
-| 基于上游版本 | 0.8.8（已合并；定制基线为 0.8.7） |
+| 基于上游版本 | 0.8.10（已合并；定制基线为 0.8.7） |
 | 定制基线 tag | flash-v0.8.7（历史锚点，不动） |
 | 定制开发分支 | flash-dev |
 | 上游仓库 | https://github.com/wangyongpeng90/cuckoo-code |
-| 上游最新版本 | 0.8.10（待合并） |
+| 上游最新版本 | 0.8.10（已合并；tag 之后另有 13 个插件相关 commit 未纳入） |
 | 本 fork 仓库 | https://github.com/paker5200/cuckoo-code |
 | 定制目的 | ①新增"自动开启新对话"上下文策略 ②改名为独立应用，与原版并存 |
 
@@ -143,7 +143,8 @@
 - **src/overlay/panels/settings.ts**（修复上游遗留 bug）
   - applySettingsData()：goalMaxIterations 缺失时不再报错拦截，改为沿用当前存储值（默认 50）。
     原因：壳页面设置页不提供该字段，上游却强制校验，导致壳页面保存任何设置都被拦截。
-  - 上游若修复此 bug，可接受上游版本（改动仅此一处）。
+  - 上游 0.8.10 已自行修复此 bug（goalMax: number | null，缺失时保留原值）。
+    ✅ 合并 0.8.10 时已接受上游版本，本定制点不再需要，后续冲突直接取上游即可。
 
 - **src/ui/shell/partials/pages/token.html**
   - "自动压缩"开关（ck-switch）→ "上下文策略"三选一单选（ck-radio-group）

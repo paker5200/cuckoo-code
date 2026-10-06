@@ -50,7 +50,7 @@
 - **纯净对话模式（Harness）**：类 Codex 的纯对话界面——隐藏底层指令，只显示用户消息 / 模型回复 / 工具卡片，支持流式渲染、Markdown、KaTeX 数学公式、思考过程折叠、Goal/Plan 面板（Ctrl+Shift+H 切换）
 - **工作区侧边栏**：按项目分组列出所有对话，支持重命名 / 归档 / 新建；对话可展开查看**子代理**与**压缩历史**（会话血缘）
 - **项目文件树**：VSCode 风文件树，类型图标 / 配色、文件名搜索、悬停一键 `@` 引用路径
-- **插件市场**：以 GitHub `topic:cuckoo-plugin` 为源自动发现插件，一键安装 / 卸载 / 启停（插件可打包技能 / 代理 / 规则 / MCP / 自定义平台）
+- **插件市场**：以 GitHub `topic:cuckoo-plugin` 为源自动发现插件，一键安装 / 卸载 / 启停（插件可打包技能 / 代理 / 规则 / MCP / 自定义平台 / **网页脚本**）；**支持 Gitee 源**（国内访问更稳）
 - **AI 自动命名对话**：AI 在对话开始时自动命名，工作区列表实时刷新
 - **Skill 支持**：对齐 Claude Code 的技能机制（项目级 `.cuckoo/skills/` + 用户级 `~/.cuckoo/skills/`），渐进式披露——教 AI 掌握特定领域的流程/规范/脚本。**→ [配置与使用说明](docs/skills.md)**
 - **Agent 支持**：对齐 Claude Code 的子代理机制（项目级 `.cuckoo/agents/` + 用户级 `~/.cuckoo/agents/`），主对话可把任务委派给独立上下文的子代理，只回摘要——既隔离上下文又支持专门化。**→ [配置与使用说明](docs/agents.md)**
@@ -371,4 +371,16 @@ cuckoo-code/
   - Provider 发送扩展接口、流式稳定性双通道、自定义 Provider 渲染进程加载、MCP 工具识别等框架级改进（PR #9）
   - **纯净对话模式（Harness）**：类 Codex 的纯对话界面——隐藏底层指令，只显示用户消息 / 模型回复 / 工具调用卡片，含流式渲染、思考过程折叠、Goal/Plan 面板、斜杠菜单（PR #22）
   - **Harness 增强 + 插件市场**：多会话隔离、侧栏「对话」分页、Markdown/LaTeX（KaTeX）渲染、Goal/Plan 自动驱动、插件市场（GitHub topic 自动发现与安装）（PR #23）
+- [@jiangchengnay](https://github.com/jiangchengnay)：
+  - **插件网页脚本注入**：插件新增 `scripts/` 贡献类型——按 URL 匹配向网页主世界注入脚本，可作用于内置平台（PR #26）
+  - **Gitee 插件市场支持**：插件市场新增 Gitee 源（检索/下载/清单），与 GitHub 并行，解决国内访问 GitHub 不稳定（PR #28）
+  - **子代理发送修复**：修复豆包等 contenteditable 平台子代理卡在"发送任务提示词"（PR #29）
+- [@8555uuy](https://github.com/8555uuy)：
+  - **危险命令检测加固**：修复复合命令（`&&` `||` `;` `|` `&`）绕过检测；统一为单一真相源并补充危险变体（PR #30）
+  - **glob 排除产物目录**：未指定 path 时默认排除 `node_modules` 等依赖/产物目录，避免淹没项目自身文件（PR #31）
+  - **webFetch SSRF 防护**：拒绝访问内网/回环/保留地址（可在设置页开启，默认关闭）（PR #32）
+  - **状态栏输出速度（TPS）**：显示模型输出速度，DeepSeek 用服务端精确 token，ChatGPT/Claude 估算（PR #33）
+  - **provider 自定义工具结果格式**：新增 `transformToolResult` 可选钩子，插件可在工具结果回传前自定义文本格式（PR #34）
+- [@ZiJiangel](https://github.com/ZiJiangel)：
+  - **飞书 Markdown 卡片**：飞书推送 AI 回复改用交互卡片渲染 Markdown（含表格）（PR #35）
 - 所有贡献者和用户
