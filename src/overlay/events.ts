@@ -314,6 +314,27 @@ function setPendingProgressGuide(folder: string): void {
 function clearPendingProgressGuide(): void {
   try { localStorage.removeItem(PENDING_PROGRESS_KEY); } catch (_) {}
 }
+// 已引导过的项目目录集合：同一目录只引导一次，避免"改阈值保存"重复注入引导。
+const GUIDED_DIRS_KEY = 'cuckoo-progress-guided-dirs';
+function readGuidedDirs(): string[] {
+  try {
+    const raw = localStorage.getItem(GUIDED_DIRS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch (_) { return []; }
+}
+function hasGuidedDir(dir: string): boolean {
+  return readGuidedDirs().indexOf(dir) !== -1;
+}
+function markGuidedDir(dir: string): void {
+  try {
+    const arr = readGuidedDirs();
+    if (arr.indexOf(dir) === -1) {
+      arr.push(dir);
+      localStorage.setItem(GUIDED_DIRS_KEY, JSON.stringify(arr));
+    }
+  } catch (_) {}
+}
 
 // ========== 「任务空闲」等待器 ==========
 // 自动开启新对话时，需"先让 AI 更新进度、等它写完"再开新对话。
@@ -532,7 +553,8 @@ async function maybeInjectProgressGuide(): Promise<void> {
       '方案选择、技术决策请记到 DECISIONS.md。' + String.fromCharCode(10) +
       '若本对话目前还没有明确任务，就先别写，等任务明确了再记录。';
     await sendToChat(msg, '系统提示词');
-    console.log('[Cuckoo Code] 已注入进度维护引导: ' + folder);
+    markGuidedDir(folder); // 记下：该目录已引导过，改阈值保存时不再重复注入
+    console.log('[Cuckoo Code] 已注入进度维护引导并标记: ' + folder);
   } catch (err: any) {
     console.error('[Cuckoo Code] 注入进度维护引导失败:', err && err.message);
   }
@@ -831,9 +853,14 @@ async function applyAutoCompactConfig(data: any): Promise<{ success: boolean; er
       }
       // 只建文件夹，不立即发消息（此时用户可能还没发布任务）。
       // 记下"待注入引导"，等用户发消息、AI 完成一轮回复后再注入（见 maybeInjectProgressGuide）。
+      // 同一项目目录只引导一次：改阈值保存时不会重复注入（避免打扰）。
       if (progressFolder) {
-        setPendingProgressGuide(progressFolder);
-        console.log('[Cuckoo Code] 已设置待注入的进度维护引导: ' + progressFolder);
+        if (hasGuidedDir(progressFolder)) {
+          console.log('[Cuckoo Code] 该目录已引导过进度维护，跳过重复设置: ' + progressFolder);
+        } else {
+          setPendingProgressGuide(progressFolder);
+          console.log('[Cuckoo Code] 已设置待注入的进度维护引导: ' + progressFolder);
+        }
       }
     }
   }
