@@ -163,7 +163,9 @@
   - build.publish.owner: wangyongpeng90 → paker5200
   - artifactName（win/mac/nsis）: cuckoo-code-* → cuckoo-code-flash-*
   - build.files 新增 "!**/*.log"（★关键，见第八节"打包注意事项"）
-  - ⚠️ version 字段每次上游更新必冲突，合并时**取上游的新版本号**（如 0.8.8），不要保留 0.8.7
+  - build.publish 新增 "releaseType": "release"（★关键：electron-builder 默认发草稿，
+    而 electron-updater 看不到草稿；必须设为 release 正式发布，已装旧版才能检测到更新）
+  - ⚠️ version 字段每次上游更新必冲突，合并时**取上游的新版本号**（如 0.8.9），不要保留旧版
 
 - **src/app/entry.ts**
   - SESSION_DIR: 'cuckoo-ai-pro-session' → 'cuckoo-code-flash-session'（★关键，决定数据隔离+单实例锁）
@@ -285,5 +287,50 @@
     node -e "import('@electron/asar').then(a=>console.log(a.default.extractFile('dist/win-unpacked/resources/app.asar','package.json').toString().slice(0,80)))"
     # 2) 实测启动（应能保持运行，而非秒退）
     #    双击 dist/win-unpacked/Cuckoo Code Flash.exe 或安装后运行
+
+---
+
+## 九、发布到 GitHub Releases（让自动更新生效）
+
+### 前提
+
+1. package.json 的 version 改成新版本号（如 0.8.9）
+2. package.json 的 build.publish 含 "releaseType": "release"
+   （★不加则默认发草稿，electron-updater 检测不到）
+3. 本机 .git-credentials 里有 GitHub token（ghp_ 开头，需 repo 权限）
+
+### 命令
+
+    # 1) 提交版本改动并推送
+    git add package.json && git commit -m "release: X.X.X"
+    git push origin flash-dev
+
+    # 2) 设置 token（从 .git-credentials 读取，切勿硬编码/提交）
+    set GH_TOKEN=<你的token>
+
+    # 3) 构建并发布（--publish always 会自动创建 Release 并上传）
+    npm run build:win:nsis
+
+### 产物（会自动上传到 Release）
+
+- cuckoo-code-flash-win-v{版本}.exe
+- cuckoo-code-flash-win-v{版本}.exe.blockmap
+- latest.yml   ← 自动更新的"版本清单"，updater 靠它判断有无新版
+
+### 验证发布成功
+
+    # 用 GitHub API 查 Release（draft 必须为 false）
+    # GET https://api.github.com/repos/paker5200/cuckoo-code/releases
+    # 期望：tag=vX.X.X, draft=false, prerelease=false, assets 三个 state=uploaded
+
+### 常见坑
+
+1. **EPERM: rename win-unpacked.tmp 失败** → dist 被残留进程/杀软占用。
+   解决：清理 dist 后重试（Remove-Item dist -Recurse -Force）。
+2. **updater 检测不到新版本** → 检查 Release 是不是 draft（草稿）。
+   草稿对 updater 不可见，必须 releaseType=release。
+3. **私人仓库收不到更新** → 私人仓库的 Release 需 token 才能访问，
+   而已装旧版没配 token，故检测不到。要自动更新就得公开发布。
+4. 发布是对外公开操作，确认无误再执行；发布后可删除（删 Release + 删远端 tag）。
 
 ---
