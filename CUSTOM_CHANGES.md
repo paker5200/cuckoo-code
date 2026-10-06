@@ -37,7 +37,8 @@
 #### 行为 B：用户发布任务后（AI 完成一轮回复时）
 
 4. 系统**注入一次**引导消息，让 AI：读 AI_CONTEXT.md → 把总目标写进 GOAL.md → 之后每完成一项更新 PROGRESS.md / TODO.md
-5. 引导**只注入一次**（用 localStorage 标志 cuckoo-pending-progress-guide 控制，注入后清除）
+5. 引导**每个项目目录只注入一次**：用 localStorage 的 cuckoo-progress-guided-dirs 记录已引导目录。
+   改阈值保存（如 20万→30万）不会重复注入（否则会重复打扰 AI）。换新项目目录才会重新引导。
 6. 引导措辞带容错：明确要求"GOAL.md 记最开始那个完整目标，不要用后续零散选择覆盖；方案选择进 DECISIONS.md"
 
 > 为什么分两步：保存设置时用户还没提任务，立即发"请写 GOAL.md"AI 会无内容可写。
@@ -54,6 +55,14 @@
 
 > 第 7 步是本定制新增（对齐"自动压缩"先发摘要指令的做法）：确保新对话读到的进度文件是最新的，
 > 而不是靠 AI 平时自觉维护。超时兜底：即使更新失败/超时，也照常开新对话。
+
+#### 记忆优化：新对话"只读关键、信任记录、从中断处继续"
+
+为让新对话快速接续（而非从头把已完成项全部重新核对），AI_CONTEXT.md 模板与开新对话指令均强调：
+- **先读 \`交接笔记/\` 里最新一份**（含上次到哪、下一步做什么）
+- 只扫 GOAL.md 整体进度 + TODO.md 待办，**不重新验证已打勾的完成项**
+- **信任记录**，直接做 TODO 第一项，不重跑已完成测试/重查已改好的文件
+- 依据：新对话目标是"接着干"，不是"复盘重来"。
 
 「项目进度」文件夹结构：
     项目进度/
@@ -119,7 +128,9 @@
   - applyAutoCompactConfig 改为 async：保存 new-chat 时调 ensureProgressFolder 建文件夹，
     并 setPendingProgressGuide() 记下"待注入引导"
   - 新增 PENDING_PROGRESS_KEY / read/set/clearPendingProgressGuide（localStorage 标志）
-  - 新增 maybeInjectProgressGuide()：在 onTaskIdle（AI 完成一轮回复）时注入一次进度维护引导
+  - 新增 GUIDED_DIRS_KEY / hasGuidedDir / markGuidedDir（记录已引导过的项目目录，同目录只引导一次）
+  - 新增 maybeInjectProgressGuide()：在 onTaskIdle（AI 完成一轮回复）时注入一次进度维护引导，
+    注入后 markGuidedDir() 标记该目录；applyAutoCompactConfig 里对已引导目录跳过重复设置
   - 新增 taskIdleWaiters / waitForNextTaskIdle() / resolveTaskIdleWaiters()（等待下一次任务空闲）
   - 新增 flushProgressThenNewChat()：token 超阈值开新对话前，先发指令让 AI 落盘进度，
     等 AI 写完（任务空闲）再开；超时 3 分钟则照常开新对话
