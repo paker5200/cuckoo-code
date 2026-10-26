@@ -26,6 +26,12 @@ import { getProfileDir, getProfilePatchPath, ensureProfile, DEFAULT_PROFILE, lis
 import { getPnpmInvocation } from '../profile/pnpm.js';
 
 const require = createRequire(import.meta.url);
+const { app } = require('electron');
+
+/** 应用根目录：开发=项目根，打包=asar 根（用于定位 node_modules/esbuild 等内置依赖） */
+function getAppRoot(): string {
+  try { return app.getAppPath(); } catch (_) { return process.cwd(); }
+}
 
 /** 我们自己的 DSH 兼容 shim：开发/测试用 .ts，打包后用 .js */
 function shimPath(): string {
@@ -109,7 +115,7 @@ const STUB_MODULE_CODE = [
 
 /** 用 esbuild 打包插件：把 @deepseek-ai/* 映射到我们的 shim */
 async function bundlePlugin(entryFile: string): Promise<string> {
-  const esbuild = require(path.join(process.cwd(), 'node_modules', 'esbuild', 'lib', 'main.js'));
+  const esbuild = require(path.join(getAppRoot(), 'node_modules', 'esbuild', 'lib', 'main.js'));
   const shim = shimPath();
   const result = await esbuild.build({
     entryPoints: [entryFile],
@@ -330,6 +336,7 @@ function createCollectorCtx(pluginName: string, host?: CuckooHost, runtime?: any
         return addDisposer(typeof c === 'function' ? c : () => {});
       } catch (e: any) {
         dbg('effect 执行失败 @' + pluginName + ': ' + (e && e.message ? e.message : String(e)));
+        console.error('[cuckoo-plugin] effect 执行失败 @' + pluginName, e);
         if (e && e.stack) dbg(String(e.stack).slice(0, 800));
         return () => {};
       }
@@ -408,7 +415,7 @@ function createCollectorCtx(pluginName: string, host?: CuckooHost, runtime?: any
             dir: profileDir,
             patchPath: getProfilePatchPath(profileDir),
             installAnchor: profileDir,
-            cwd: process.cwd(),
+            cwd: getAppRoot(),
             home,
             packageManager: getPnpmInvocation(),
             startedBundles: [],

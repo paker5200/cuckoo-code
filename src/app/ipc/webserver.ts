@@ -104,6 +104,22 @@ function ensureServer(): Promise<number> {
           delete req.headers.origin;
           delete req.headers.referer;
         }
+        // 跨域预检（OPTIONS）直接放行：file:// 页面带自定义头 X-Cuckoo-Shell 时会触发预检
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204, {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Cuckoo-Shell',
+            'Access-Control-Max-Age': '86400',
+          });
+          res.end();
+          return;
+        }
+
+        // 全局注入 CORS 头（对动态路由和静态资源都生效），防止浏览器直接报 Failed to fetch
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Cuckoo-Shell');
+
         // 1) 动态路由优先（插件注册的 HTTP 处理器）
         const dyn = dynamicRoutes.find((r) => r.kind === 'exact' ? url.pathname === r.path : url.pathname.startsWith(r.path));
         if (dyn) {
@@ -117,21 +133,37 @@ function ensureServer(): Promise<number> {
         }
         // 2) 静态资源（/plugins/<id>/<prefix>/...）
         const m = url.pathname.match(/^\/plugins\/([^/]+)(\/.*)?$/);
-        if (!m) { res.writeHead(404); res.end('not found'); return; }
+        if (!m) {
+          res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'not found', path: url.pathname }));
+          return;
+        }
         const pluginId = decodeURIComponent(m[1]);
         const rest = m[2] || '/';
         const route = routes.find(r => r.pluginId === pluginId && (rest === r.prefix || rest.startsWith(r.prefix + '/')));
-        if (!route) { res.writeHead(404); res.end('no route'); return; }
+        if (!route) {
+          res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'no route', pluginId, path: url.pathname }));
+          return;
+        }
         const relInDir = rest.slice(route.prefix.length).replace(/^\//, '');
         // 找插件目录
         const plugins = listInstalledPlugins();
         const target = plugins.find((p: any) => p.manifest && p.manifest.id === pluginId);
-        if (!target) { res.writeHead(404); res.end('plugin not found'); return; }
+        if (!target) {
+          res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'plugin not found', pluginId }));
+          return;
+        }
         const root = path.resolve(target.dir, route.dir);
         const abs = path.resolve(root, relInDir || 'index.html');
         const prefix = root.endsWith(path.sep) ? root : root + path.sep;
         if (abs !== root && !abs.startsWith(prefix)) { res.writeHead(403); res.end('forbidden'); return; }
-        if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) { res.writeHead(404); res.end('file not found'); return; }
+        if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+          res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'file not found', path: url.pathname }));
+          return;
+        }
         const buf = fs.readFileSync(abs);
         res.writeHead(200, { 'Content-Type': guessMime(abs), 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' });
         res.end(buf);

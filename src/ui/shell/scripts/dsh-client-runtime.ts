@@ -790,83 +790,134 @@ function installFetchInterceptor(): void {
   if (w.__ckFetchPatched) return;
   w.__ckFetchPatched = true;
   const origFetch = w.fetch.bind(w);
-  // 判断"该走插件 HTTP 服务"的 URL：
-  //   - /api/*（Cuckoo 旧约定）
-  //   - /dsh-*/*（dsh 插件路由，如 /dsh-market/status）
-  //   - /plugin*/*（插件路由）
-  //   - file:// 下的相对根路径（fetch('/xxx') 在 file:// 页面上会解析成 file:///C:/.../xxx）
-  // 判断"该走插件 HTTP 服务"的 URL——**路径任意位置**含 API 标记即可：
-  //   /dsh-market/xxx
-  //   /C:/d/.../src/ui/dsh-market/xxx  （file:// 页面 + new URL 后的形态）
-  //   /api/xxx
-  //   /plugin* /xxx
-  // 插件 HTTP 路由前缀（内置 + 动态从主进程拉：所有已注册的动态路由）
-  const API_MARKERS = ['/dsh-market/', '/dsh-tasks/', '/api/', '/plugin'];
-  let DYNAMIC_ROUTE_PATHS: string[] = [];
-  let DYNAMIC_LOADED = false;
-  // 从主进程拉动态路由（懒加载一次；插件注册后调用 refreshDynamicRoutes 更新）
-  const refreshDynamicRoutes = async () => {
+  // [022] 不设白名单。用主进程的动态路由表（插件 ctx.webServer.register 注册的 path）
+  // 从任意形态的 URL 里匹配出真正的 API 路径，再拼到本地 webServer 上。
+  // 匹配不到注册表的请求原样放行（如 file:// 同目录静态资源、外网请求）。
+  // 每次请求都实时拉取，不做缓存（IPC 只需几毫秒，避免「插件加载慢于壳页面」导致缓存过期）。
+  const fetchDynamicRoutes = async (): Promise<string[]> => {
     try {
       const api = (window as any).shellAPI;
-      if (!api || typeof api.webRoutes !== 'function') return;
+      if (!api || typeof api.webRoutes !== 'function') return [];
       const r = await api.webRoutes();
       if (r && r.success && Array.isArray(r.routes)) {
-        DYNAMIC_ROUTE_PATHS = r.routes.map((x: any) => String(x && x.path ? x.path : '')).filter(Boolean);
-        DYNAMIC_LOADED = true;
+        // 按长度降序：最长匹配优先（'/dsh-market/api' 先于 '/dsh-market'）
+        return r.routes
+          .map((x: any) => String(x && x.path ? x.path : ''))
+          .filter(Boolean)
+          .sort((a: string, b: string) => b.length - a.length);
       }
     } catch (_) { /* ignore */ }
+    return [];
   };
-  (window as any).__ckRefreshDynamicRoutes = refreshDynamicRoutes;
-  // 首次拉一次（不阻塞 fetch）
-  refreshDynamicRoutes();
-  const isPluginApi = (u: string) => {
+  /** 是否外网/绝对地址（不重写，直接放行） */
+  const isExternalUrl = (u: string) => {
     if (!u) return false;
-    for (const mk of API_MARKERS) { if (u.indexOf(mk) >= 0) return true; }
-    // 动态路由（任意插件注册的 path，如 /dsh-ssh/api）
-    for (const p of DYNAMIC_ROUTE_PATHS) { if (p && u.indexOf(p) >= 0) return true; }
+    if (/^(https?|data|blob|chrome-extension|about|ws|wss):/i.test(u)) return true;
+    if (u.startsWith('//')) return true;
     return false;
+  };
+  /**
+   * 壳页面自身目录（含末尾斜杠），用于剥离插件 pathname 里的"页面磁盘前缀"。
+   * 例：document.baseURI = 'file:///C:/d/.../src/ui/shell.html'
+   *     → BASE_DIR = '/C:/d/.../src/ui/'
+   * 不同用户安装路径不同，所以运行时动态获取，不能写死。
+   */
+  const BASE_DIR: string = (() => {
+    try {
+      const u = new URL(document.baseURI);
+      const p = u.pathname;
+      const i = p.lastIndexOf('/');
+      return i >= 0 ? p.slice(0, i + 1) : '';
+    } catch (_) { return ''; }
+  })();
+  /**
+   * 去掉 pathname 开头的 BASE_DIR。
+   * 不含 BASE_DIR 时原样返回（如 '/dsh-tasks/api/next' 这种前端硬编码路径）。
+   */
+  const stripBaseDir = (raw: string): string => {
+    if (!BASE_DIR || !raw.startsWith(BASE_DIR)) return raw;
+    return '/' + raw.slice(BASE_DIR.length);
+  };
+  /**
+   * 从任意形态的 URL 里，用已注册的动态路由表匹配出真正的 API 路径。
+   * 返回 null 表示「不是任何已注册插件的 API」——调用方应原样放行。
+   *
+   * 三段式（精度从高到低）：
+   *   ① 剥离 BASE_DIR（页面磁盘前缀）得到候选，若以注册 path 开头则命中（最准确）
+   *   ② 候选本身作为绝对路径匹配注册表（如 '/dsh-tasks/api/next'）
+   *   ③ 兜底：在原始 raw 里 indexOf 找注册 path（极端情况下路径形态异常）
+   *
+   * 例：
+   *   '/C:/d/.../ui/dsh-market/status'
+   *     → 剥离 BASE_DIR → '/dsh-market/status' → 命中 '/dsh-market' ✅
+   *   '/dsh-tasks/api/next'
+   *     → 不含 BASE_DIR，候选 = 原样 → 命中 '/dsh-tasks/api' ✅
+   */
+  const extractApiPath = (raw: string, routes: string[]): string | null => {
+    if (!raw) return null;
+    // 统一先提取 pathname 部分（去掉 query/fragment）
+    let pathname = raw;
+    try {
+      const u = new URL(raw, document.baseURI);
+      pathname = u.pathname;
+    } catch (_) { /* raw 本身可能就是 pathname */ }
+
+    // ① 剥离 BASE_DIR 后匹配（最准确）
+    const stripped = stripBaseDir(pathname);
+    for (const p of routes) {
+      if (stripped === p || stripped.startsWith(p + '/')) return stripped;
+    }
+
+    // ② 候选本身作为绝对路径匹配（dsh-tasks 这类前端硬编码路径）
+    for (const p of routes) {
+      if (pathname === p || pathname.startsWith(p + '/')) return pathname;
+    }
+
+    // ③ 兜底：在原始 raw 里 indexOf 找注册 path（路径形态异常时的最后一道）
+    for (const p of routes) {
+      const idx = raw.indexOf(p);
+      if (idx >= 0) {
+        // 校验边界：后面必须是 '/' 或结尾，避免 '/dsh-market-app' 误匹配 '/dsh-market'
+        const next = raw[idx + p.length];
+        if (next === undefined || next === '/' || next === '?' || next === '#') {
+          return raw.slice(idx);
+        }
+      }
+    }
+    return null;
   };
   w.fetch = async (input: any, init?: any) => {
     try {
       let url = typeof input === 'string' ? input : (input && input.url ? input.url : String(input));
-      if (isPluginApi(url)) {
-        if (httpBaseCache === null) {
-          try {
-            const api = (window as any).shellAPI;
-            const r = api && typeof api.webServerInfo === 'function' ? await api.webServerInfo() : null;
-            httpBaseCache = (r && r.success && r.base) ? r.base : '';
-          } catch (_) { httpBaseCache = ''; }
+      if (url && !isExternalUrl(url)) {
+        const routes = await fetchDynamicRoutes();
+        let raw = url;
+        if (!raw.startsWith('/') && !raw.startsWith('file:')) {
+          try { raw = new URL(raw, location.href).href; } catch (_) { /* ignore */ }
         }
-        // 取壳令牌（只取一次）
-        if (shellTokenCache === null) {
-          try {
-            const api = (window as any).shellAPI;
-            const r = api && typeof api.getShellToken === 'function' ? await api.getShellToken() : null;
-            shellTokenCache = (r && r.token) ? r.token : '';
-          } catch (_) { shellTokenCache = ''; }
-        }
-        if (httpBaseCache) {
-          // 从任意形态的 URL 里提取"API 路径"
-          let raw = url;
-          if (raw.startsWith('file:')) {
-            const m = raw.match(/^file:\/\/[^/]*\/(.*)$/);
-            if (m) raw = '/' + m[1];
+        const apiPath = extractApiPath(raw, routes);
+        if (apiPath) {
+          if (httpBaseCache === null) {
+            try {
+              const api = (window as any).shellAPI;
+              const r = api && typeof api.webServerInfo === 'function' ? await api.webServerInfo() : null;
+              httpBaseCache = (r && r.success && r.base) ? r.base : '';
+            } catch (_) { httpBaseCache = ''; }
           }
-          // 取最早出现的 marker 位置（保留完整前缀，如 /dsh-tasks/api）
-          let pathname = '';
-          let bestIdx = -1;
-          for (const mk of API_MARKERS) {
-            const idx = raw.indexOf(mk);
-            if (idx >= 0 && (bestIdx < 0 || idx < bestIdx)) bestIdx = idx;
+          if (shellTokenCache === null) {
+            try {
+              const api = (window as any).shellAPI;
+              const r = api && typeof api.getShellToken === 'function' ? await api.getShellToken() : null;
+              shellTokenCache = (r && r.token) ? r.token : '';
+            } catch (_) { shellTokenCache = ''; }
           }
-          if (bestIdx >= 0) pathname = raw.slice(bestIdx);
-          if (!pathname) pathname = raw.startsWith('/') ? raw : '/' + raw;
-          input = httpBaseCache + pathname;
-          // 带壳令牌（服务器据此删"跨站"标记，让插件同源检查放行）
-          if (shellTokenCache) {
-            const headers = new Headers(init && init.headers ? init.headers : undefined);
-            headers.set('X-Cuckoo-Shell', shellTokenCache);
-            init = Object.assign({}, init || {}, { headers });
+          if (httpBaseCache) {
+            input = httpBaseCache + apiPath;
+            if (shellTokenCache) {
+              const headers = new Headers(init && init.headers ? init.headers : undefined);
+              headers.set('X-Cuckoo-Shell', shellTokenCache);
+              init = Object.assign({}, init || {}, { headers });
+            }
           }
         }
       }
