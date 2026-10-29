@@ -60,6 +60,10 @@ let electronAPI: any = {
   listSessions: () => {
     return ipcRenderer.invoke('list-sessions');
   },
+  // 导出对话日志（弹保存对话框，写入本地 JSON 文件）
+  exportSessionLog: (payload: any) => {
+    return ipcRenderer.invoke('export-session-log', payload);
+  },
   navigateSession: (sessionId: any) => {
     return ipcRenderer.invoke('navigate-session', { sessionId });
   },

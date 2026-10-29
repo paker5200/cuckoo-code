@@ -24,6 +24,7 @@ import { initSubagentIfNeeded } from './subagent.js';
 import { initHarnessBridge } from './harness-bridge.js';
 import { initProbeIfNeeded } from './probe.js';
 import { initFeishuBridge } from './feishu-bridge.js';
+import { installExportLog } from '../overlay/export-log.js';
 
 const require = createRequire(import.meta.url);
 const { webFrame, ipcRenderer } = require('electron');
@@ -142,6 +143,9 @@ function init(): void {
       try { projectDir.updateProjectDirDisplay(subCfg.projectDir); } catch (_) { /* ignore */ }
     }
     bindEvents();
+    try { installExportLog(); } catch (err: any) {
+      console.error('[Cuckoo Code] 安装导出对话日志失败:', err && err.message);
+    }
     ui.updateHomeMode();
 
     // URL 变化：主进程 did-navigate/-in-page 会推 'cuckoo-url-changed'

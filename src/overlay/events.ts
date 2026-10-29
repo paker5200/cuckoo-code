@@ -483,7 +483,7 @@ function checkAutoCompact() {
  * - 未选项目目录：直接开新对话（无进度文件可更新）
  * - 超时（默认 3 分钟）：照常开新对话（不能因更新失败把用户卡死）
  */
-const FLUSH_PROGRESS_TIMEOUT_MS = 180000;
+const FLUSH_PROGRESS_TIMEOUT_MS = 300000;
 async function flushProgressThenNewChat(): Promise<void> {
   const projectDir = state.currentProjectDir;
   // 无项目目录：没有进度文件可更新，直接开新对话
@@ -497,24 +497,49 @@ async function flushProgressThenNewChat(): Promise<void> {
   try {
     console.log('[Cuckoo NewChat] 先发指令让 AI 更新进度文件，再开新对话');
     showToast('正在让 AI 更新项目进度文件...', 4000);
-    // 等下一次"任务空闲"（AI 工具循环结束 = 进度文件写完）
-    const waitIdle = waitForNextTaskIdle(FLUSH_PROGRESS_TIMEOUT_MS);
     const msg =
       '【自动开启新对话前的进度归档】' + String.fromCharCode(10) +
-      '当前对话即将因上下文过长而开启新对话。请在开启前，先把当前进度更新到「项目进度」文件：' + String.fromCharCode(10) +
-      '- GOAL.md：本次任务的总目标（若还没写，现在补上；已有则更新整体进度勾选）' + String.fromCharCode(10) +
-      '- PROGRESS.md：把已完成事项打勾并加日期' + String.fromCharCode(10) +
-      '- TODO.md：更新待办' + String.fromCharCode(10) +
-      '- DECISIONS.md：把重要决策及原因补上' + String.fromCharCode(10) +
+      '当前对话即将因上下文过长而开启新对话。请在开启前，务必先更新「项目进度」文件，确保新对话能完美接手：' + String.fromCharCode(10) +
+      '1. **清理已办**：检查 TODO.md，凡是在本对话中已完成的项，必须移到 PROGRESS.md 并打勾，**绝不允许把已完成项留在 TODO.md 中**。' + String.fromCharCode(10) +
+      '2. **盘点挂起**：若有用户要求暂缓/放弃的任务，必须在 TODO.md 中标记为 [已挂起] 并写明原因。' + String.fromCharCode(10) +
+      '3. **更新状态**：TODO.md 中正在做的任务标为 [进行中]，未开始的标为 [待办]。' + String.fromCharCode(10) +
+      '4. **记录交接**：在 交接笔记/ 目录下写一份今天的笔记，写明本次做到了哪、遗留了什么。' + String.fromCharCode(10) +
       '记录规则详见 ' + folder + '\\AI_CONTEXT.md。' + String.fromCharCode(10) +
-      '请尽快完成更新（新对话将依赖这些文件承接上下文）。更新完成后回复一句"进度已更新"即可。';
-    const sent = await sendToChat(msg, '系统提示词');
-    if (!sent) {
-      console.log('[Cuckoo NewChat] 更新进度指令发送失败，直接开新对话');
-      await triggerNewChatWithProgress();
-      return;
+      '**注意：你必须真实调用文件写入工具来更新上述文件。仅仅口头回复“进度已更新”是不合格的，系统会校验文件时间戳。**' + String.fromCharCode(10) +
+      '真实更新完成后，回复一句"进度已更新"即可。';
+
+    let sent = false;
+    let waitIdleResolve: (val: boolean) => void = () => {};
+    const waitIdlePromise = new Promise<boolean>((resolve) => { waitIdleResolve = resolve; });
+
+    // 重试机制：最多 5 次，每次间隔 10 秒
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const ok = await sendToChat(msg, '系统提示词', undefined, () => {
+        // 消息真正投递后，延迟 1 秒再注册任务空闲监听。
+        // 这样可以漏掉发送瞬间可能产生的残留 idle 信号，防止“秒跳转”
+        setTimeout(() => {
+          waitForNextTaskIdle(FLUSH_PROGRESS_TIMEOUT_MS).then(waitIdleResolve);
+        }, 1000);
+      });
+
+      if (ok) {
+        sent = true;
+        break;
+      }
+      console.log(`[Cuckoo NewChat] 进度归档指令发送失败，10秒后重试 (第 ${attempt}/5 次)...`);
+      showToast(`归档指令发送失败，10秒后重试 (${attempt}/5)`, 3000);
+      if (attempt < 5) {
+        await new Promise(r => setTimeout(r, 10000));
+      }
     }
-    const finished = await waitIdle;
+
+    if (!sent) {
+      console.error('[Cuckoo NewChat] 连续 5 次发送归档指令失败，中止自动新对话');
+      showToast('归档指令发送失败，已中止自动新对话，请检查页面是否正常', 5000);
+      return; // 中止，不跳转
+    }
+
+    const finished = await waitIdlePromise;
     console.log('[Cuckoo NewChat] 进度更新' + (finished ? '完成，开新对话' : '等待超时（照常开新对话）'));
     if (!finished) showToast('进度更新超时，仍将开启新对话', 4000);
   } catch (err: any) {
@@ -603,7 +628,18 @@ function startTokenCounter() {
   // 任务空闲（工具循环结束）：先唤醒等待器，再注入"待处理的进度引导"，最后检查自动压缩
   hooks.onTaskIdle?.(() => {
     resolveTaskIdleWaiters();
-    maybeInjectProgressGuide().finally(() => checkAutoCompact());
+    
+    // 判断本次空闲是否会触发“自动开启新对话”的归档
+    const mode = readContextMode();
+    const thresholdTokens = autoCompactThresholdWan * 10000;
+    const willNewChat = (mode === 'new-chat' && serverTokenUsage && typeof serverTokenUsage.accumulatedTokens === 'number' && serverTokenUsage.accumulatedTokens >= thresholdTokens);
+
+    if (willNewChat) {
+      // 如果即将开启新对话，跳过引导注入，直接走归档检查，避免两条消息并发抢占输入框
+      checkAutoCompact();
+    } else {
+      maybeInjectProgressGuide().finally(() => checkAutoCompact());
+    }
   });
   updateConversationTokenDisplay();
 
