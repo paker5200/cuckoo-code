@@ -404,46 +404,37 @@ function registerShellIpc(): void {
 
   // 隐藏/显示 AI 视图——壳页面弹窗需要"盖过 AI 区域"时用
   ipcMain.handle('shell-set-ai-view-visible', async (event: any, { visible }: any) => {
-    let ctx = windowState.getContextByWebContents(event.sender);
-    
-    if (!ctx) {
-      // 兜底 1：通过 webContents 找 BrowserWindow
+    try {
       const { BrowserWindow } = require('electron');
-      const win = BrowserWindow.fromWebContents(event.sender);
-      if (win) {
-        const contexts = (windowState as any).getAllContexts ? (windowState as any).getAllContexts() : [];
-        for (const c of contexts) {
-          if (c.win === win) { ctx = c; break; }
-        }
-      }
-    }
-    
-    // 兜底 2：直接取主窗口上下文（因为壳页面通常是主窗口）
-    if (!ctx) ctx = windowState.getMainContext();
-    if (!ctx) return { success: false, error: '找不到窗口上下文' };
-
-    // 暴力遍历当前所有窗口，把除了 sender 之外的所有 WebContentsView 全部隐藏
-    const { BrowserWindow } = require('electron');
-    const windows = BrowserWindow.getAllWindows();
-    for (const win of windows) {
-      if (win.isDestroyed()) continue;
-      try {
+      const windows = BrowserWindow.getAllWindows();
+      
+      for (const win of windows) {
+        if (!win || win.isDestroyed()) continue;
+        
+        // 同步原版标记，确保 layoutView 重新计算时不会把视图又放出来
+        win.__ckAiViewVisible = visible;
+        
         if (win.contentView && win.contentView.children) {
           for (const child of win.contentView.children) {
-            if (child.webContents === event.sender) continue; // 保护壳页面自己
+            // 如果是壳页面自己，千万别隐藏
+            if (child.webContents === event.sender) continue;
+            
             try { child.setVisible(visible); } catch (_) {}
+            
             if (!visible) {
+              // 隐藏时把尺寸清零，彻底杜绝穿透
               try { child.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
             }
           }
         }
-      } catch (_) {}
-      
-      // 尝试同步原版标记并触发重排，防恢复时位置出错
-      if (typeof win.__ckLayout === 'function') {
-        win.__ckAiViewVisible = visible;
-        try { win.__ckLayout(); } catch (_) {}
+        
+        // 触发重排，让 layoutView 按正确的状态恢复
+        if (typeof win.__ckLayout === 'function') {
+          try { win.__ckLayout(); } catch (_) {}
+        }
       }
+    } catch (err: any) {
+      console.error('[Cuckoo IPC] 设置视图显隐失败:', err.message);
     }
     return { success: true };
   });
