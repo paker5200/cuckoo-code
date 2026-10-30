@@ -2326,7 +2326,6 @@ body {
 </style>
 </head>
 <body>
-  <div id="ck-modal-root" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 2147483000;"></div>
   <div class="shell">
     <div class="toolbar">
       <button class="project-picker" id="project-picker" title="当前项目目录">
@@ -31623,7 +31622,7 @@ body {
       // 设置模态（Portal 挂到 body，全窗遮罩 + 居中对话框）
       settingsOpen ? (0, import_react_dom2.createPortal)(
         (0, import_react8.createElement)(SettingsModal, { onClose: () => setSettingsOpen(false) }),
-        document.getElementById("ck-modal-root") || document.body
+        document.body
       ) : null
     );
   }

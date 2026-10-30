@@ -411,24 +411,27 @@ function registerShellIpc(): void {
       for (const win of windows) {
         if (!win || win.isDestroyed()) continue;
         
-        // 同步原版标记，确保 layoutView 重新计算时不会把视图又放出来
         win.__ckAiViewVisible = visible;
         
-        if (win.contentView && win.contentView.children) {
-          for (const child of win.contentView.children) {
-            // 如果是壳页面自己，千万别隐藏
+        if (win.contentView) {
+          const children = [...(win.contentView.children || [])];
+          for (const child of children) {
+            // 保护壳页面
             if (child.webContents === event.sender) continue;
             
-            try { child.setVisible(visible); } catch (_) {}
-            
             if (!visible) {
-              // 隐藏时把尺寸清零，彻底杜绝穿透
-              try { child.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
+              // 隐藏时：直接从视图树拔掉，绝对物理隔绝
+              try { win.contentView.removeChildView(child); } catch (_) {}
+            } else {
+              // 恢复时：重新插回视图树（避免重复插入）
+              if (!win.contentView.children.includes(child)) {
+                try { win.contentView.addChildView(child); } catch (_) {}
+              }
             }
           }
         }
         
-        // 触发重排，让 layoutView 按正确的状态恢复
+        // 触发重排
         if (typeof win.__ckLayout === 'function') {
           try { win.__ckLayout(); } catch (_) {}
         }

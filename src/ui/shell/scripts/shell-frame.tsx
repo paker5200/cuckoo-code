@@ -275,7 +275,7 @@ function ShellFrame() {
     // 设置模态（Portal 挂到 body，全窗遮罩 + 居中对话框）
     settingsOpen ? createPortal(
       createElement(SettingsModal, { onClose: () => setSettingsOpen(false) }),
-      document.getElementById('ck-modal-root') || document.body,
+      document.body,
     ) : null,
   );
 }
