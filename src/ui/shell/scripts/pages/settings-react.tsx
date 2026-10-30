@@ -323,15 +323,22 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     }
   }
 
-  // 外层遮罩（点遮罩关闭）+ 内层居中对话框
+  // 强制把模态框移到 body 下，避免被侧边栏裁剪
+  useEffect(() => {
+    const mask = document.querySelector('.ck-settings-mask');
+    if (mask && mask.parentNode !== document.body) {
+      document.body.appendChild(mask);
+    }
+  }, []);
+
   return createElement('div', { 
     className: 'ck-settings-mask', 
-    style: { position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' },
+    style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' },
     onClick: (e: any) => { if (e.target === e.currentTarget) onClose(); } 
   },
     createElement('div', { 
       className: 'ck-settings-dialog', 
-      style: { width: '1000px', maxWidth: '92vw', height: '720px', maxHeight: '88vh', display: 'flex', flexDirection: 'column', background: 'var(--ck-bg, #fff)', borderRadius: '12px', boxShadow: '0 12px 48px rgba(0,0,0,0.35)', border: '1px solid var(--ck-border, #ccc)', overflow: 'hidden' },
+      style: { width: '1000px', maxWidth: '92vw', height: '720px', maxHeight: '88vh', display: 'flex', flexDirection: 'column', background: 'var(--ck-bg, #fff)', borderRadius: '12px', boxShadow: '0 12px 48px rgba(0,0,0,0.35)', border: '1px solid var(--ck-border, #ccc)', overflow: 'hidden', position: 'relative', zIndex: 100000 },
       onClick: (e: any) => e.stopPropagation() 
     },
       // 顶栏（只有关闭按钮）

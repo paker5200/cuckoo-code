@@ -336,8 +336,10 @@ function createWindow(profile: any) {
     const h = (mainWindow as any).__ckShellHeight || ch;
     // AI view 可见性（P3：点"插件"等主面板时，隐藏 AI view 让壳页面主区域露出来）
     if ((mainWindow as any).__ckAiViewVisible === false) {
+      try { view.setVisible(false); } catch (_) {}
       view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
     } else {
+      try { view.setVisible(true); } catch (_) {}
       view.setBounds({
         x: sbw, y: tbh,
         width: Math.max(0, w - sbw),

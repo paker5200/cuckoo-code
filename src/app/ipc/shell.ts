@@ -423,16 +423,25 @@ function registerShellIpc(): void {
     if (!ctx) return { success: false, error: '找不到窗口上下文' };
 
     // 优先调用原作者在 entry.ts 中定义的 __ckSetAiViewVisible
-    if (typeof (ctx.win as any).__ckSetAiViewVisible === 'function') {
-      (ctx.win as any).__ckSetAiViewVisible(visible);
-    } else {
-      // 兜底逻辑
-      if (!visible) {
-        try { if (ctx.view && !ctx.view.webContents.isDestroyed()) { ctx.view.setVisible(false); } } catch (_) {}
-        try { if ((ctx as any).harnessView && !(ctx as any).harnessView.webContents.isDestroyed()) { (ctx as any).harnessView.setVisible(false); } } catch (_) {}
+    if (!visible) {
+      // 强制隐藏 AI 视图
+      try { if (ctx.view && !ctx.view.webContents.isDestroyed()) { ctx.view.setVisible(false); } } catch (_) {}
+      try { if ((ctx as any).harnessView && !(ctx as any).harnessView.webContents.isDestroyed()) { (ctx as any).harnessView.setVisible(false); } } catch (_) {}
+      // 通知 layoutView 不要显示它
+      if (typeof (ctx.win as any).__ckSetAiViewVisible === 'function') {
+        (ctx.win as any).__ckSetAiViewVisible(false);
       } else {
-        try { if (ctx.view && !ctx.view.webContents.isDestroyed()) ctx.view.setVisible(true); } catch (_) {}
-        try { if ((ctx as any).harnessView && !(ctx as any).harnessView.webContents.isDestroyed()) (ctx as any).harnessView.setVisible(true); } catch (_) {}
+        (ctx.win as any).__ckAiViewVisible = false;
+        try { if (typeof (ctx.win as any).__ckLayout === 'function') (ctx.win as any).__ckLayout(); } catch (_) {}
+      }
+    } else {
+      // 强制显示 AI 视图
+      try { if (ctx.view && !ctx.view.webContents.isDestroyed()) ctx.view.setVisible(true); } catch (_) {}
+      try { if ((ctx as any).harnessView && !(ctx as any).harnessView.webContents.isDestroyed()) (ctx as any).harnessView.setVisible(true); } catch (_) {}
+      if (typeof (ctx.win as any).__ckSetAiViewVisible === 'function') {
+        (ctx.win as any).__ckSetAiViewVisible(true);
+      } else {
+        (ctx.win as any).__ckAiViewVisible = true;
         try { if (typeof (ctx.win as any).__ckLayout === 'function') (ctx.win as any).__ckLayout(); } catch (_) {}
       }
     }
