@@ -3,6 +3,8 @@
  * 全部方法可选——用防御式调用（if (api.xxx) api.xxx()）。
  */
 export interface ShellAPI {
+  /** 运行平台（darwin/win32/linux） */
+  platform?: string;
   navigate?: (url: string) => void;
   back?: () => void;
   forward?: () => void;
@@ -10,6 +12,18 @@ export interface ShellAPI {
   home?: () => void;
   onUrlUpdated?: (cb: (data: any) => void) => void;
   toggleSidebar?: (width: number) => void;
+  /** 隐藏/显示 AI 视图（弹窗盖过 AI 区域时用） */
+  setAiViewVisible?: (visible: boolean) => Promise<any>;
+  /** 选择项目目录 */
+  selectProjectDir?: () => Promise<{ success: boolean; message: string; dir?: string }>;
+  /** 取消初始化 */
+  cancelInitPrompt?: () => void;
+  /** 发送普通消息 */
+  sendNormalMessage?: (text: string) => Promise<any>;
+  /** 发送初始化消息（带系统提示词） */
+  sendInitMessage?: (text: string, projectDir: string) => Promise<any>;
+  /** 监听主进程：显示初始化输入弹窗 */
+  onShowInitPrompt?: (cb: (data?: any) => void) => void;
   startSidebarDrag?: () => void;
   endSidebarDrag?: () => void;
   onSidebarDrag?: (cb: (width: number) => void) => void;
@@ -28,6 +42,14 @@ export interface ShellAPI {
   listInstalledPlugins?: () => Promise<any>;
   pluginSetEnabled?: (id: string, enabled: boolean) => Promise<any>;
   pluginOpenDir?: () => Promise<any>;
+  // ===== Cuckoo 插件（DSH 兼容）=====
+  cuckooPluginList?: () => Promise<any>;
+  cuckooPluginInstall?: (pkgName: string) => Promise<any>;
+  /** DSH 插件 client 入口源码 */
+  cuckooPluginClientSources?: () => Promise<any>;
+  cuckooPluginUninstall?: (id: string) => Promise<any>;
+  cuckooPluginToggle?: (id: string, enabled: boolean) => Promise<any>;
+  cuckooPluginOpenDir?: () => Promise<any>;
   // 窗口组
   wgList?: () => Promise<any>;
   wgCreate?: (name?: string) => Promise<any>;
@@ -36,6 +58,14 @@ export interface ShellAPI {
   wgRename?: (groupId: string, name: string) => Promise<any>;
   wgDelete?: (groupId: string) => Promise<any>;
   wgSwitch?: (groupId: string) => Promise<any>;
+  // 记忆
+  getMemoriesEnabled?: () => Promise<any>;
+  setMemoriesEnabled?: (enabled: boolean) => Promise<any>;
+  listMemories?: () => Promise<any>;
+  saveMemories?: (memories: any[]) => Promise<any>;
+  addMemory?: (text: string) => Promise<any>;
+  deleteMemory?: (id: string) => Promise<any>;
+  onMemoriesChanged?: (cb: () => void) => void;
   /** 切换纯净对话模式（Harness） */
   toggleHarness?: () => Promise<any>;
   /** 纯净模式状态变化（harness=true 表示已进入纯净模式） */
@@ -48,6 +78,12 @@ export interface ShellAPI {
   onPlatformMode?: (cb: (data: any) => void) => void;
   /** 会话标题/归档变化（如 AI 命名对话）→ 刷新工作区列表 */
   onSessionsChanged?: (cb: () => void) => void;
+  // ===== 主题 =====
+  themeGet?: () => Promise<any>;
+  themeSet?: (id: string) => Promise<any>;
+  themeList?: () => Promise<any>;
+  themeSubscribe?: () => Promise<any>;
+  onThemeChanged?: (cb: (snapshot: any) => void) => void;
   // 会话（侧边栏「工作区」页）
   listAllSessions?: () => Promise<any>;
   navigateSession?: (sessionId: string) => Promise<any>;
@@ -84,6 +120,7 @@ export interface ShellAPI {
   deleteProfileWindow?: (id: string) => Promise<any>;
   setProfileAutoOpen?: (id: string, on: boolean) => Promise<any>;
   // Token / 自动压缩
+  getTokenUsage?: () => Promise<any>;
   getAutoCompact?: () => Promise<any>;
   saveAutoCompact?: (data: any) => Promise<any>;
   triggerCompact?: () => Promise<any>;
@@ -105,4 +142,18 @@ export interface ShellAPI {
   listFeishuChats?: () => Promise<any>;
   getFeishuBinding?: () => Promise<any>;
   bindFeishuChat?: (chatId: string, chatName: string) => Promise<any>;
+  // ===== DSH 插件插槽 / 本地 HTTP 服务 =====
+  listPluginSlots?: () => Promise<any>;
+  onPluginSlotRegister?: (cb: (m: any) => void) => void;
+  onPluginSlotUnregister?: (cb: (m: any) => void) => void;
+  slotRegister?: (spec: any) => Promise<any>;
+  /** 插件本地 HTTP 服务端口（壳页面 fetch /api/* 用） */
+  webServerInfo?: () => Promise<any>;
+  /** 壳页面令牌（fetch 时带 X-Cuckoo-Shell 头） */
+  getShellToken?: () => Promise<any>;
+  // ===== 日志（仅打包版生效；开发版由 start.js 写日志）=====
+  getLogInfo?: () => Promise<{ success: boolean; enabled: boolean; dir: string; file: string; size: number; error?: string }>;
+  setLogEnabled?: (enabled: boolean) => Promise<{ success: boolean; enabled?: boolean; error?: string }>;
+  deleteLogs?: () => Promise<{ success: boolean; error?: string }>;
+  openLogDir?: () => Promise<{ success: boolean; error?: string }>;
 }

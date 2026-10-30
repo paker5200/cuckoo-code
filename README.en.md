@@ -43,11 +43,13 @@ Not just chat. The AI can read/write files, search code, execute commands, query
 ## Main Features
 
 - **Multi-window management**: each window has an independent profile context; tick "Default" to auto-open on startup
-- **Address bar**: top bar to view/copy the URL, navigate back/forward/reload, quick-jump; a status bar below shows token usage
+- **Address bar**: top bar to view/copy the URL, navigate back/forward/reload, quick-jump; a status bar below shows token usage and **output speed (TPS)**
+- **Feishu push**: AI replies can be pushed to Feishu (rendered as interactive cards with Markdown, including tables)
 - **Project initialization**: after selecting a project directory, the AI gets the directory tree and system prompt
 - **Harness mode (pure chat)**: a Codex-like pure chat UI — hides low-level instructions, showing only user messages / model replies / tool cards; supports streaming, Markdown, KaTeX math, collapsible thinking, Goal/Plan panel (toggle with Ctrl+Shift+H)
 - **Workspace sidebar**: lists all conversations grouped by project; rename / archive / new; expand a conversation to see its **subagents** and **compaction history** (session lineage)
 - **Project file tree**: VSCode-style tree with type icons / colors, filename search, and one-click `@` path reference
+- **File preview (Monaco)**: click a file to preview its content to the right of the tree (VSCode's editor: line numbers + syntax highlighting), without covering the AI; drag the left bar to resize the tree, the right bar to resize the sidebar
 - **Plugin market**: auto-discovers plugins via GitHub `topic:cuckoo-plugin`; install / uninstall / toggle in one click (a plugin can bundle skills / agents / rules / MCP / custom providers / **web scripts**); **Gitee source supported**
 - **Auto-naming conversations**: the AI names each conversation at the start; the workspace list refreshes live
 - **Skill support**: Claude Code-aligned skills (project `.cuckoo/skills/` + user `~/.cuckoo/skills/`), progressive disclosure — teach the AI domain-specific workflows/rules/scripts. **→ [Configuration & usage](docs/skills.md)**
@@ -59,7 +61,7 @@ Not just chat. The AI can read/write files, search code, execute commands, query
 - **Context compaction**: long sessions auto-compact (clear IDB + refresh + share link) to avoid hitting the context limit
 - **Automatic retry**: two mechanisms — (1) retry with backoff when a reply is truncated/fails; (2) watchdog prompts "continue" when the SSE stream goes silent
 - **Session persistence**: login state and settings are saved to %APPDATA%/cuckoo-ai-pro-session
-- **Safety mechanisms**: 30-second command timeout, 60-second sandbox timeout, 1MB output buffer, dangerous command confirmation
+- **Safety mechanisms**: 30-second command timeout, 60-second sandbox timeout, 1MB output buffer, dangerous command confirmation (including compound commands); webFetch can optionally **reject internal addresses** (SSRF protection, enabled in Settings)
 
 ---
 
@@ -331,6 +333,16 @@ This project is licensed under the GNU General Public License v3.0. See the LICE
   - **webFetch SSRF protection**: rejects internal/loopback/reserved addresses (opt-in via Settings, off by default) (PR #32)
   - **Status-bar output speed (TPS)**: shows model output speed — exact server-side token count on DeepSeek, estimated on ChatGPT/Claude (PR #33)
   - **Provider-customizable tool-result format**: new optional `transformToolResult` hook lets plugins customize the text format before tool results are sent back (PR #34)
+  - **Dangerous-command detection hardening**: fixes bypass via wrapper prefixes (`sudo`/`env`/`nohup` etc.), wildcard roots (`rm -rf /*`), and long options (`--recursive --force`, `--no-preserve-root`) (PR #38)
+  - **edit preserves EOL of unedited regions**: editing a mixed line-ending file no longer normalizes the whole file to its dominant format; only matched ranges are rewritten, preserving unedited regions byte-for-byte and eliminating diff noise (PR #39)
+  - **User memory system**: cross-session/cross-project long-term memory (remember/forgetMemory tools + inline [记忆]xxx marker auto-capture + system-prompt injection + sidebar management), protecting ~/.cuckoo/ user data from file tools (PR #40)
 - [@ZiJiangel](https://github.com/ZiJiangel):
   - **Feishu Markdown card**: AI replies pushed to Feishu now render Markdown (including tables) via interactive cards (PR #35)
+  - **Executable plugin system + theme system**: executable plugin runtime (function / object / class plugin forms, 5 event dispatches, service provide/inject, reversible effects, assets, tool registration), theme system `ctx.theme` (main-process authoritative + IPC proxy + `--ck-*` tokens + custom title bar + persistence), UI primitives (overlay / shell mount / slot / addStyle) (PR #36)
+- [@yangjh888](https://github.com/yangjh888):
+  - **Full ChatGPT logged-in support**: reply interception rewritten as three-state (finished/stopped/error), fixed bare `{v:[...]}` SSE delta-frame parsing, `fillInput` (execCommand) + `triggerSend` (real Enter) for ProseMirror input/send, Google OAuth fingerprint fixes (Sec-CH-UA* / userAgentData / webdriver) (PR #47)
+- [@brownie19850318](https://github.com/brownie19850318):
+  - **ChatGPT multi-message stream adaptation**: fixes messages containing cuckoo blocks being locked and dropped when a single SSE stream carries multiple assistant messages (new `endTurn` to distinguish message-level vs turn-level completion, `overwriteText` to prevent overwriting) (PR #49)
+  - **Cancellable tool-execution mask**: shows a "Stop" button during tool execution, allowing long tasks to be cancelled midway (PR #49)
+  - **Release renderer on window close**: fixes child-view (WebContentsView) renderer processes not being released on window close (orphan processes + memory leak) (PR #49)
 - All contributors and users

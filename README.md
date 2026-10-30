@@ -14,25 +14,62 @@
 
 [English](README.en.md) | 中文
 
+**本系统仅用于学习使用,通过本系统造成的任何损失由使用者自行承担**
+
 [下载最新版本](https://github.com/wangyongpeng90/cuckoo-code/releases/latest)
 
 **Cuckoo Code** 是一个零 Token 成本的 AI Agent 桌面端。
 
 > 📐 **要改代码 / 做新需求？先读 [架构与开发指南](docs/architecture.md)**（目录结构、依赖规则、构建流程、任务手册）。
 
-它通过 Electron 将 AI 网页版（DeepSeek、Claude 等）嵌入本地窗口，并注入侧边覆盖层。AI 被系统提示词引导生成工具调用（JavaScript 代码块），经用户确认后在本地沙箱中执行，再把结果回传给 AI。整个过程不需要 API Key，不产生 API 调用费用——你用的是网页版账号，而不是按 Token 计费的接口。
+它通过 Electron 将 AI 网页版嵌入本地窗口，并注入侧边覆盖层。AI 被系统提示词引导生成工具调用（JavaScript 代码块），经用户确认后在本地沙箱中执行，再把结果回传给 AI。整个过程不需要 API Key，你用的是网页版账号，而不是按 Token 计费的接口。
+
+> 本系统完全ai生成,人类在其中只扮演需求传话筒角色, 并且除最小实现(read / edit / write 工具)外是由其他agent工具实现,其他后续迭代功能全部由 cuckoo code 自行迭代完成.
+
+---
+
+## 捐赠与支持
+
+> 🚫 **本项目不接受任何形式的个人捐赠**——作者不会收取任何款项。
+>
+> ✅ 如果你想支持本项目，欢迎向 **壹基金（One Foundation）** 捐赠：
+> [https://onefoundation.cn/donate/](https://onefoundation.cn/donate/)
+>
+> 所有捐赠款项**直接进入壹基金公益账户**，与作者无关，纯属公益行为。
+
+**已通过壹基金捐赠的善款：3 笔 / 300 元**
+
+| 捐赠者 | 金额 | 日期 | 捐赠证书 |
+|---|---|---|---|
+| Hazel | 100 元 | 2026-10-26 | [https://onefoundation.cn/cert/20261027103737586/](https://onefoundation.cn/cert/20261027103737586/)|
+| 十七不是石器ᯤ | 100 元 | 2026-10-26 | [https://onefoundation.cn/cert/20261026213679892/](https://onefoundation.cn/cert/20261026213679892/)|
+| 王先生 | 100 元 | 2026-10-26 | [https://onefoundation.cn/cert/20261026131837934/](https://onefoundation.cn/cert/20261026131837934/) |
+
+> 名单持续更新中，完整历史详见 [DONORS.md](DONORS.md)
+
+**捐赠者权益**（凭壹基金捐赠证书联系作者获取）：
+
+- 深度定制开发
+- 单独社区群聊
+- 优先咨询服务
+
+> 💝 **获取权益方式**：完成壹基金捐赠后，保存证书链接，联系作者（注明「**Cuckoo 捐赠**」），会为你登记入 [捐赠者名单](DONORS.md) 并拉入权益通道：
+>
+> - QQ：**61519628**
+> - 微信：**w_y_p666**
+> - 邮箱：**wangyongpeng@yongpeng.wang**
 
 ---
 
 ## 核心特性
 
-### 零 Token 成本
+### 丰富网页版AI能力
 
-不调用任何 AI 平台 API，不使用 API Token。直接复用网页版聊天能力，把网页版 AI 变成可执行本地操作的 Agent。
+直接复用网页版聊天能力，把网页版 AI 丰富成可执行本地操作的 Agent。
 
 ### 多平台 Provider 框架
 
-- 内置 **DeepSeek**、**Claude**、**ChatGPT** 三个平台
+- 内置 平台 作为学习demo
 - 每个平台独立封装输入框定位、发送按钮检测、回复完成判断、消息解析等差异
 - 新建窗口时可选择平台，也可**导入自定义 Provider**（提供类型声明和模板，降低扩展门槛）
 
@@ -45,11 +82,13 @@
 ## 主要功能
 
 - **多窗口管理**：每个窗口独立 Profile 上下文，互不干扰；可勾选「默认」在启动时自动打开
-- **地址栏**：顶部地址栏显示/复制 URL、前进后退刷新、快速跳转；下方状态条显示 token 用量
+- **地址栏**：顶部地址栏显示/复制 URL、前进后退刷新、快速跳转；下方状态条显示 token 用量与**输出速度（TPS）**
+- **飞书推送**：AI 回复可推送到飞书（交互卡片渲染 Markdown，含表格）
 - **项目初始化**：选择项目目录后，AI 获得目录树和系统提示词，操作基于真实项目上下文
 - **纯净对话模式（Harness）**：类 Codex 的纯对话界面——隐藏底层指令，只显示用户消息 / 模型回复 / 工具卡片，支持流式渲染、Markdown、KaTeX 数学公式、思考过程折叠、Goal/Plan 面板（Ctrl+Shift+H 切换）
 - **工作区侧边栏**：按项目分组列出所有对话，支持重命名 / 归档 / 新建；对话可展开查看**子代理**与**压缩历史**（会话血缘）
 - **项目文件树**：VSCode 风文件树，类型图标 / 配色、文件名搜索、悬停一键 `@` 引用路径
+- **文件预览（Monaco）**：点文件在树右侧预览内容（VSCode 同款编辑器：行号 + 语法高亮），不遮挡 AI；左条拖拽调树宽、右条拖拽调侧栏总宽
 - **插件市场**：以 GitHub `topic:cuckoo-plugin` 为源自动发现插件，一键安装 / 卸载 / 启停（插件可打包技能 / 代理 / 规则 / MCP / 自定义平台 / **网页脚本**）；**支持 Gitee 源**（国内访问更稳）
 - **AI 自动命名对话**：AI 在对话开始时自动命名，工作区列表实时刷新
 - **Skill 支持**：对齐 Claude Code 的技能机制（项目级 `.cuckoo/skills/` + 用户级 `~/.cuckoo/skills/`），渐进式披露——教 AI 掌握特定领域的流程/规范/脚本。**→ [配置与使用说明](docs/skills.md)**
@@ -62,7 +101,7 @@
 - **上下文压缩**：长会话自动压缩（清 IDB + 刷新 + 建分享链接），避免超上下文上限
 - **自动重试**：两类机制——① 回复被服务端截断/失败时按退避重试；② 看门狗检测 SSE 流静默时催「请继续」
 - **会话持久化**：登录状态和设置保存到 %APPDATA%/cuckoo-ai-pro-session
-- **安全机制**：30 秒命令超时、60 秒沙箱超时、1MB 输出缓冲区、危险命令确认
+- **安全机制**：30 秒命令超时、60 秒沙箱超时、1MB 输出缓冲区、危险命令确认（含复合命令检测）；webFetch 可选**拒绝访问内网地址**（防 SSRF，设置页开启）
 
 ---
 
@@ -252,6 +291,33 @@ AI 读 `src/api/user.ts` 时，会**自动看到这条规则**（首次注入全
 
 ---
 
+## DSH 插件兼容
+
+Cuckoo 支持直接安装运行 **DSH（DeepSeek Harness）插件**——类似"鸿蒙兼容 Android 应用"的思路：Cuckoo 不依赖 DSH 代码，而是自己实现同名 API，让 DSH 插件原样跑在 Cuckoo 里。
+
+### 已支持的 DSH 能力
+
+- **工具定义**：`@deepseek-ai/dsh-tools` 的 `defineTool` 自动转换成 Cuckoo 工具
+- **宿主服务**：`ctx.agents` / `ctx.fs` / `ctx.sessions` / `ctx.settings` / `ctx.shell` / `ctx.mcpResources` 等 32 个服务
+- **客户端运行时**：支持 DSH 的 `./client` 入口（UI 插件、Slot 注册、React 渲染）
+- **工作区注册表**：`ctx.workspaceRegistry` 持久化（对齐 DSH 五道校验）
+- **设置面板**：`settings.section` 动态渲染插件配置表单
+
+### 已验证插件
+
+- `@deepseek-ai/dsh-tool-todo`（官方包）：与真 DSH 输出一致
+- `dsh-tasks`：定时任务调度、窗口定位、跨窗口跳转已兼容
+
+### 限制
+
+DSH 的 119 个 Context 服务中，当前实现 32 个（27%）。新插件如果用到未实现的服务，会走 stub（可能缺高级能力）。
+
+**适配新插件时**，先对照 **[DSH API 覆盖度清单](docs/dsh-api-coverage.md)** 看用到哪些服务。
+
+> 💬 **想兼容哪些 DSH 插件？请进群咨询** —— 见下方 [交流群](#交流群) 章节，告诉我们你希望支持的具体插件，我们会按优先级逐个适配。
+
+---
+
 ## 自定义 Provider
 
 想要接入新的 AI 平台？复制 `src/providers/custom/provider.template.js`，按模板填写：
@@ -381,6 +447,16 @@ cuckoo-code/
   - **webFetch SSRF 防护**：拒绝访问内网/回环/保留地址（可在设置页开启，默认关闭）（PR #32）
   - **状态栏输出速度（TPS）**：显示模型输出速度，DeepSeek 用服务端精确 token，ChatGPT/Claude 估算（PR #33）
   - **provider 自定义工具结果格式**：新增 `transformToolResult` 可选钩子，插件可在工具结果回传前自定义文本格式（PR #34）
+  - **危险命令检测增强**：修复前缀修饰词（`sudo`/`env`/`nohup` 等）、通配符根目录（`rm -rf /*`）、长选项（`--recursive --force`、`--no-preserve-root`）绕过（PR #38）
+  - **edit 保留未编辑区域换行符**：编辑混合换行符文件时不再全文规整成主导格式，只改写命中区间、逐字节保留未编辑区域行尾，消除 diff 噪音（PR #39）
+  - **用户记忆系统**：跨会话/跨项目的长期记忆（remember/forgetMemory 工具 + 正文 [记忆]xxx 标记自动捕获 + 系统提示词注入 + 侧边栏管理），并保护 ~/.cuckoo/ 用户数据不被文件工具误改（PR #40）
 - [@ZiJiangel](https://github.com/ZiJiangel)：
   - **飞书 Markdown 卡片**：飞书推送 AI 回复改用交互卡片渲染 Markdown（含表格）（PR #35）
+  - **可执行插件系统 + 主题系统**：引入可执行插件运行时（函数/对象/类三种插件形态、5 种事件派发、服务 provide/inject、可逆副作用、资源、工具注册），主题系统 `ctx.theme`（主进程权威 + IPC 代理 + `--ck-*` token + 自绘标题栏 + 持久化），UI 原子能力（overlay / shell 挂载 / slot 槽位 / addStyle 注入 CSS）（PR #36）
+- [@yangjh888](https://github.com/yangjh888)：
+  - **ChatGPT 登录态完整适配**：回复拦截重写为三态（finished/stopped/error）、SSE 裸 `{v:[...]}` 增量帧解析修复、`fillInput`（execCommand）+ `triggerSend`（真实 Enter）解决 ProseMirror 输入/发送、Google OAuth 指纹修正（Sec-CH-UA* / userAgentData / webdriver）（PR #47）
+- [@brownie19850318](https://github.com/brownie19850318)：
+  - **ChatGPT 多消息流适配**：修复同一条 SSE 流内多条 assistant 消息场景下，后续含 cuckoo 块的消息被提前锁定丢弃（新增 `endTurn` 区分消息级/整轮结束、`overwriteText` 防正文被覆盖）（PR #49）
+  - **工具执行遮罩支持取消**：工具调用执行期间遮罩显示「停止」按钮，长任务可中途取消（PR #49）
+  - **关窗释放渲染进程**：修复窗口关闭时子视图（WebContentsView）渲染进程不释放（孤儿进程 + 内存泄漏）（PR #49）
 - 所有贡献者和用户

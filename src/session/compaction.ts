@@ -29,13 +29,37 @@ const SUMMARY_INSTRUCTION =
   '已完成的结论和未完成的事项，用中文，一次性输出全部内容，' +
   '直接输出摘要，不要输出其他解释。';
 
+// 压缩交接提示（2026-10-01）：压缩后新会话只有摘要上下文，AI 会盲目信任它。
+//   要求 AI 主动读文件补全项目/任务上下文，避免基于残缺摘要行动。用户诉求。
+const CONTEXT_HANDOFF_INSTRUCTION =
+  '【上下文交接提示】你当前看到的对话是上一轮会话经压缩后的摘要，**并非完整上下文**——' +
+  '摘要可能丢失细节、假设、未落盘的决策。**不要盲目相信你当前的上下文。**\n\n' +
+  '请立即主动补全上下文：\n' +
+  '1. 读取项目文档/代码，了解项目现状与进行中的任务（如 spec、README、任务清单、最近改动的文件）；\n' +
+  '2. 核实摘要中的关键结论在文件/代码里是否真实成立（不轻信摘要）；\n' +
+  '3. 明确当前任务进度与下一步。\n\n' +
+  '补全后，最后单独输出一句：**上下文交接已完成**。';
+
 const COMPACT_URL_FLAG = 'cuckoo-compact';
 const COMPACT_DIR_KEY = 'cuckoo-compact-project-dir';
 const PENDING_INIT_KEY = 'cuckoo-compact-pending-init';
 const IDB_WAIT_TIMEOUT = 20000;
 
+// 窗口组转移对话：与压缩同源（清 IDB + 刷新 + 等重写），但 ratio=1.0（全量）、不跳转（主进程导航目标窗口）
+const SWITCH_URL_FLAG = 'cuckoo-switch';
+const SWITCH_ID_KEY = 'cuckoo-switch-id';
+
 function logStep(step: string, msg: string): void {
   console.log('[Cuckoo Compact] [' + step + '] ' + msg);
+}
+
+/** 在重试间隔期间展示倒计时（每秒更新一次 toast，含失败原因），等待结束后返回。 */
+async function countdownAndWait(attempt: number, maxAttempts: number, intervalMs: number, reason: string): Promise<void> {
+  const totalSec = Math.ceil(intervalMs / 1000);
+  for (let remaining = totalSec; remaining > 0; remaining--) {
+    showToast('压缩重试中（' + attempt + '/' + maxAttempts + '）：' + remaining + ' 秒后重新刷新…\n原因: ' + reason, 2000);
+    await new Promise<void>((r) => setTimeout(r, 1000));
+  }
 }
 
 interface MessageItem {
@@ -215,24 +239,53 @@ function pickRecentPairedIds(msgs: MessageItem[], leafId: number | null, ratio: 
   return picked.map((m) => m.message_id).sort((a, b) => b - a);
 }
 
-/** 调 share/create 创建分享，返回 share_id */
+/** 调 share/create 创建分享，返回 share_id（带超时 + 完整错误信息） */
 async function createShare(sessionId: string, messageIds: number[], headers: any): Promise<string> {
   const h = Object.assign({}, headers);
   h['content-type'] = 'application/json';
-  const resp = await fetch('/api/v0/share/create', {
-    method: 'POST',
-    headers: h,
-    body: JSON.stringify({ chat_session_id: sessionId, message_ids: messageIds }),
-  });
-  const txt = await resp.text();
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  let resp: Response;
+  let txt: string;
+  try {
+    resp = await fetch('/api/v0/share/create', {
+      method: 'POST',
+      headers: h,
+      body: JSON.stringify({ chat_session_id: sessionId, message_ids: messageIds }),
+      signal: controller.signal,
+    });
+    txt = await resp.text();
+  } catch (err: any) {
+    if (err && err.name === 'AbortError') throw new Error('share/create 请求超时（30 秒）');
+    throw new Error('share/create 请求失败: ' + ((err && err.message) || String(err)));
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
   console.log('[Cuckoo Compact] [api] share/create HTTP ' + resp.status + ' 响应: ' + txt.slice(0, 600));
+
+  if (!resp.ok) {
+    throw new Error('share/create HTTP ' + resp.status + ': ' + txt.slice(0, 200));
+  }
+
   let json: any = null;
   try { json = JSON.parse(txt); } catch (_) {}
-  if (!json || json.code !== 0) {
-    throw new Error('创建分享失败: ' + (json ? json.msg : txt.slice(0, 200)));
+  if (!json) {
+    throw new Error('share/create 响应非 JSON: ' + txt.slice(0, 200));
+  }
+  if (json.code !== 0) {
+    throw new Error('share/create 失败: ' + (json.msg || '未知错误'));
+  }
+  const bizCode = json.data && json.data.biz_code;
+  if (bizCode !== undefined && bizCode !== 0) {
+    throw new Error('share/create 业务错误: ' + (json.data.biz_msg || '未知业务错误') + ' (biz_code=' + bizCode + ')');
   }
   const shareId = json.data && json.data.biz_data && json.data.biz_data.share_id;
-  if (!shareId) throw new Error('响应无 share_id（完整响应见日志）');
+  if (!shareId) {
+    throw new Error('share/create 响应无 share_id: ' + txt.slice(0, 200));
+  }
   return shareId;
 }
 
@@ -257,22 +310,38 @@ async function runCompaction(projectDir?: string): Promise<void> {
     const { text: summaryText } = await waitReply;
     logStep('summary', '收到摘要回复，长度=' + (summaryText || '').length);
 
-    // 清当前会话 IDB 记录，触发刷新后 DeepSeek 重新拉取完整历史
-    logStep('idb', '清除当前会话 IDB 记录');
-    await clearSessionFromIdb(sessionId);
-
-    // 存项目目录（跨页需要）
+    // [022] 摘要已收到，从这里开始任何异常都重试
+    // 段1 失败 → 清 IDB（尽力）→ 倒计时 20s → 刷新（cuckoo-compact=1&compact-retry=2）
+    // 段2 会读到 compact-retry 计数并继续重试（最多 10 次）
+    const MAX_ATTEMPTS = 10;
+    const RETRY_INTERVAL = 20000;
     try {
-      if (projectDir) localStorage.setItem(COMPACT_DIR_KEY, projectDir);
-      else localStorage.removeItem(COMPACT_DIR_KEY);
-    } catch (_) {}
+      logStep('idb', '清除 IDB');
+      await clearSessionFromIdb(sessionId);
 
-    // URL 加标记 → 刷新
-    const url = new URL(location.href);
-    url.searchParams.set(COMPACT_URL_FLAG, '1');
-    logStep('reload', '刷新页面以让 DeepSeek 重建 IDB: ' + url.toString());
-    showToast('压缩中，正在刷新页面...', 3000);
-    location.href = url.toString();
+      try {
+        if (projectDir) localStorage.setItem(COMPACT_DIR_KEY, projectDir);
+        else localStorage.removeItem(COMPACT_DIR_KEY);
+      } catch (_) {}
+
+      const url = new URL(location.href);
+      url.searchParams.set(COMPACT_URL_FLAG, '1');
+      logStep('reload', '刷新页面以让 DeepSeek 重建 IDB: ' + url.toString());
+      showToast('压缩中，正在刷新页面...', 3000);
+      location.href = url.toString();
+      return;
+    } catch (err: any) {
+      const errMsg = (err && err.message) || String(err);
+      logStep('retry', '清 IDB 失败: ' + errMsg + '，' + (RETRY_INTERVAL / 1000) + 's 后刷新重试');
+      // 尽力清 IDB（失败也继续，刷新后浏览器会重建）
+      try { await clearSessionFromIdb(sessionId); } catch (_) { /* ignore */ }
+      await countdownAndWait(1, MAX_ATTEMPTS, RETRY_INTERVAL, errMsg);
+      const url = new URL(location.href);
+      url.searchParams.set(COMPACT_URL_FLAG, '1');
+      url.searchParams.set('compact-retry', '2');
+      location.href = url.toString();
+      return;
+    }
   } catch (err: any) {
     console.error('[Cuckoo Compact] 压缩失败:', err);
     showToast('压缩失败: ' + err.message, 5000);
@@ -284,26 +353,40 @@ async function runCompaction(projectDir?: string): Promise<void> {
 
 /** 段2：刷新后同页 —— 检测 URL 标记，等 IDB 写入，创建分享并跳转 */
 async function checkPendingCompact(): Promise<boolean> {
-  let flag = '';
-  try { flag = new URL(location.href).searchParams.get(COMPACT_URL_FLAG) || ''; } catch (_) {}
+  const urlObj = new URL(location.href);
+  const flag = urlObj.searchParams.get(COMPACT_URL_FLAG) || '';
   if (!flag) return false;
 
-  // 立即清掉 URL 参数，避免重复触发（URL 天然不持久，关页再开不会误触发）
+  const MAX_ATTEMPTS = 10;
+  const RETRY_INTERVAL = 20000;
+
+  // 读取重试计数（上一轮失败刷新时带过来的）
+  let currentAttempt = 1;
   try {
-    const url = new URL(location.href);
-    url.searchParams.delete(COMPACT_URL_FLAG);
-    history.replaceState(null, '', url.pathname + url.search + url.hash);
+    const rp = urlObj.searchParams.get('compact-retry');
+    const parsed = parseInt(rp || '1', 10);
+    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= MAX_ATTEMPTS) currentAttempt = parsed;
+  } catch (_) {}
+  logStep('retry', '段2 当前重试次数=' + currentAttempt + '/' + MAX_ATTEMPTS);
+
+  // 立即清掉 URL 参数，避免重复触发
+  try {
+    urlObj.searchParams.delete(COMPACT_URL_FLAG);
+    urlObj.searchParams.delete('compact-retry');
+    history.replaceState(null, '', urlObj.pathname + urlObj.search + urlObj.hash);
     logStep('reload', '已清除 URL 标记');
   } catch (_) {}
 
   let projectDir: string | null = null;
   try { projectDir = localStorage.getItem(COMPACT_DIR_KEY); } catch (_) {}
 
+  let sessionId: string | null = null;
+  try { sessionId = getSessionIdFromUrl(); } catch (_) {}
+
   try {
-    const sessionId = getSessionIdFromUrl();
     if (!sessionId) throw new Error('无法从 URL 获取 chat_session_id');
 
-    logStep('idb', '等待 DeepSeek 重建 IDB（监听写入事件）');
+    logStep('idb', '第 ' + currentAttempt + '/' + MAX_ATTEMPTS + ' 次尝试：等待 DeepSeek 重建 IDB（监听写入事件）');
     await waitForIdbWrite(IDB_WAIT_TIMEOUT);
     logStep('idb', '收到 IDB 写入事件');
 
@@ -330,8 +413,22 @@ async function checkPendingCompact(): Promise<boolean> {
     location.href = link;
     return true;
   } catch (err: any) {
-    console.error('[Cuckoo Compact] 段2失败:', err);
-    showToast('压缩失败: ' + err.message, 5000);
+    const errMsg = (err && err.message) || String(err);
+    if (currentAttempt >= MAX_ATTEMPTS) {
+      console.error('[Cuckoo Compact] 段2失败（已重试 ' + MAX_ATTEMPTS + ' 次）:', errMsg);
+      showToast('压缩失败（已重试 ' + MAX_ATTEMPTS + ' 次）: ' + errMsg, 8000);
+      return false;
+    }
+    logStep('retry', '第 ' + currentAttempt + '/' + MAX_ATTEMPTS + ' 次失败: ' + errMsg + '，' + (RETRY_INTERVAL / 1000) + 's 后刷新重试');
+    // 尽力清 IDB（失败也继续，刷新后浏览器会重建）
+    if (sessionId) {
+      try { await clearSessionFromIdb(sessionId); } catch (_) { /* ignore */ }
+    }
+    await countdownAndWait(currentAttempt, MAX_ATTEMPTS, RETRY_INTERVAL, errMsg);
+    const u = new URL(location.href);
+    u.searchParams.set(COMPACT_URL_FLAG, '1');
+    u.searchParams.set('compact-retry', String(currentAttempt + 1));
+    location.href = u.toString();
     return false;
   }
 }
@@ -352,9 +449,13 @@ function checkPendingInit(): void {
   let parentSessionId = null;
   try { parentSessionId = localStorage.getItem('cuckoo-compact-parent-session'); } catch (_) {}
   console.log('[Cuckoo Compact] 检测到压缩后待初始化，3 秒后执行；项目目录=' + (projectDir || '(无)') + '，压缩前会话=' + (parentSessionId || '(无)'));
-  setTimeout(() => {
+  setTimeout(async () => {
+    // 系统提示词 + 交接提示合并为**一条消息**（通过 extraPrompt 追加在系统提示词末尾）。
+    // ⚠️ 不能分两次发：initProject 内部填入后要等 2~4 秒随机延迟才发送，
+    //    若此时再调 sendToChat 发交接提示，会覆盖输入框里未发出的系统提示词（实测 bug）。
     try {
-      (window as any).electronAPI.initProject(projectDir || null, true, '', false, parentSessionId);
+      await (window as any).electronAPI.initProject(projectDir || null, true, CONTEXT_HANDOFF_INSTRUCTION, false, parentSessionId);
+      console.log('[Cuckoo Compact] 已发送系统提示词 + 上下文交接提示（合并为一条）');
     } catch (err) {
       console.error('[Cuckoo Compact] 压缩后初始化失败:', err);
     }
@@ -362,26 +463,85 @@ function checkPendingInit(): void {
 }
 
 /**
- * 全量分享当前会话（供"窗口组切换"用）。
- * 与压缩不同：这里分享**全部消息**（ratio=1），用于把当前对话完整交给另一个窗口。
- * @returns { shareId, sessionId }
+ * 段A：窗口组转移 —— 清 IDB + 刷新，让 DeepSeek 重写完整历史。
+ * 与压缩同源，但：① ratio=1.0（全量分享）② 不跳转（shareId 上报主进程，由主进程导航目标窗口）。
+ * @param switchId 本次转移的唯一 id（跨刷新关联）
  */
-async function shareAllForSwitch(): Promise<{ shareId: string; sessionId: string }> {
+async function prepareSwitchShare(switchId: string): Promise<void> {
   const sessionId = getSessionIdFromUrl();
   if (!sessionId) throw new Error('无法从 URL 获取 chat_session_id');
-  const headers = getCachedHeaders();
-  if (!headers || !headers['authorization']) {
-    throw new Error('未获取到认证请求头（请刷新页面后重试）');
-  }
-  const { list: allMsgs, currentMessageId } = await getMessagesFromIndexedDB(sessionId);
-  if (allMsgs.length === 0) throw new Error('未读取到消息列表');
-  const ids = pickRecentPairedIds(allMsgs, currentMessageId, 1.0);
-  if (ids.length === 0) throw new Error('无有效消息可分享');
-  logStep('switch', '全量分享 ' + ids.length + ' 条消息（会话 ' + sessionId + '）');
-  const shareId = await createShare(sessionId, ids, headers);
-  return { shareId, sessionId };
+  logStep('switch', '准备转移分享 sessionId=' + sessionId + ' switchId=' + switchId);
+  // 存 switchId（跨刷新关联）
+  try { localStorage.setItem(SWITCH_ID_KEY, switchId); } catch (_) {}
+  // 清当前会话 IDB 记录（触发刷新后 DeepSeek 重新拉取完整历史）
+  logStep('switch', '清除当前会话 IDB 记录');
+  await clearSessionFromIdb(sessionId);
+  // URL 加标记 → 刷新
+  const url = new URL(location.href);
+  url.searchParams.set(SWITCH_URL_FLAG, '1');
+  logStep('switch', '刷新页面以重建 IDB: ' + url.toString());
+  showToast('正在准备转移对话...', 3000);
+  location.href = url.toString();
 }
 
-export { runCompaction, checkPendingCompact, checkPendingInit, shareAllForSwitch };
+/**
+ * 段B：刷新后同页 —— 等 IDB 写入 → 读全量 → 分享 → 上报 shareId（不跳转）。
+ * @returns 是否处理了本次转移标记
+ */
+async function checkPendingSwitch(): Promise<boolean> {
+  let flag = '';
+  try { flag = new URL(location.href).searchParams.get(SWITCH_URL_FLAG) || ''; } catch (_) {}
+  if (!flag) return false;
+
+  // 清 URL 标记，避免重复触发
+  try {
+    const url = new URL(location.href);
+    url.searchParams.delete(SWITCH_URL_FLAG);
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+    logStep('switch', '已清除 URL 标记');
+  } catch (_) {}
+
+  let switchId = '';
+  try { switchId = localStorage.getItem(SWITCH_ID_KEY) || ''; } catch (_) {}
+
+  try {
+    const sessionId = getSessionIdFromUrl();
+    if (!sessionId) throw new Error('无法从 URL 获取 chat_session_id');
+
+    logStep('switch', '等待 DeepSeek 重建 IDB（监听写入事件）');
+    await waitForIdbWrite(IDB_WAIT_TIMEOUT);
+    logStep('switch', '收到 IDB 写入事件');
+
+    const headers = getCachedHeaders();
+    if (!headers || !headers['authorization']) {
+      throw new Error('未获取到认证请求头（请刷新页面后重试）');
+    }
+
+    const { list: allMsgs, currentMessageId } = await getMessagesFromIndexedDB(sessionId);
+    if (allMsgs.length === 0) throw new Error('未读取到消息列表');
+    const ids = pickRecentPairedIds(allMsgs, currentMessageId, 1.0);
+    if (ids.length === 0) throw new Error('无有效消息可分享');
+    logStep('switch', '全量消息 ' + allMsgs.length + ' 条（叶子=' + (currentMessageId || '?') + '），分享 ' + ids.length + ' 条');
+
+    const shareId = await createShare(sessionId, ids, headers);
+    logStep('switch', '分享成功 shareId=' + shareId);
+
+    // 上报主进程（不跳转，由主进程导航目标窗口）
+    try {
+      (window as any).electronAPI.switchShareReady({ switchId, shareId, sessionId });
+      logStep('switch', '已上报主进程');
+    } catch (err: any) {
+      console.error('[Cuckoo Compact] 上报转移分享失败:', err);
+    }
+    return true;
+  } catch (err: any) {
+    console.error('[Cuckoo Compact] 段B(转移)失败:', err);
+    // 上报失败（让主进程及时获知，不等超时）
+    try { (window as any).electronAPI.switchShareReady({ switchId, error: err.message }); } catch (_) {}
+    return false;
+  }
+}
+
+export { runCompaction, checkPendingCompact, checkPendingInit, prepareSwitchShare, checkPendingSwitch };
 // 纯函数导出（测试用）
 export { pickRecentPairedIds as _pickRecentPairedIds };

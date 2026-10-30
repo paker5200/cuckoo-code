@@ -14,7 +14,11 @@ import { registerSnippetsIpc } from './snippets.js';
 import { registerSettingsIpc } from './settings.js';
 import { registerFeishuIpc } from './feishu.js';
 import { registerPluginIpc } from './plugin.js';
+import { registerWebServerIpc } from './webserver.js';
+import { registerLogIpc } from './logs.js';
+import { registerThemeIpc } from './theme.js';
 import { registerWindowGroupsIpc, onSwitchShareResult } from './window-groups.js';
+import { registerMemoryIpc } from './memory.js';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -35,7 +39,11 @@ function registerIpcHandlers(): void {
   registerSettingsIpc();
   registerFeishuIpc();
   registerPluginIpc();
+  registerWebServerIpc();
+  registerLogIpc();
+  registerThemeIpc();
   registerWindowGroupsIpc();
+  registerMemoryIpc();
 }
 
 export { registerIpcHandlers };

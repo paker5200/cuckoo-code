@@ -7,11 +7,12 @@ import { state } from './state.js';
 import { hideOverlay, showOverlay, renderHistory, commandHistory, showToast, hideFirstTimeDialog } from './panel.js';
 import { handleInitProject, renderSessions } from './session-list.js';
 import { sendToChat } from './chat-input.js';
-import { runCompaction, checkPendingCompact, checkPendingInit } from '../session/compaction.js';
+import { runCompaction, checkPendingCompact, checkPendingInit, checkPendingSwitch } from '../session/compaction.js';
 import { renderWindowList, openWindowManager, closeWindowManager, handleGenerateDoc } from './panels/window-manager.js';
 import { loadMcpConfigToJson, renderMcpList, openMcpManager, closeMcpManager, handleMcpSave } from './panels/mcp-manager.js';
 import { openSettings, closeSettings, resetSettings, saveSettings } from './panels/settings.js';
 import { makeFabDraggable } from './fab.js';
+
 import { getProviderByUrl } from '../providers/registry.js';
 import { createTpsMeter, formatTps } from './tps.js';
 
@@ -666,6 +667,8 @@ function bindEvents() {
   if (eventsBound) return;
   eventsBound = true;
 
+
+
   // ===== 左侧活动栏：标签页切换 =====
   const abItems = document.querySelectorAll('.cuckoo-ab-item');
   const tabPanels = document.querySelectorAll('.cuckoo-tab-panel');
@@ -713,9 +716,16 @@ function bindEvents() {
   const compactBtn = document.getElementById('cuckoo-btn-compact');
   compactBtn?.addEventListener('click', () => runCompaction(state.currentProjectDir || undefined));
 
-  // 首次使用提示浮窗：初始化按钮（与右侧初始化项目逻辑一致）
+  // 首次使用提示浮窗：点击后隐藏网页提示框，并唤起壳页面的漂亮 Modal
   const firstInitBtn = document.getElementById('cuckoo-btn-first-init');
-  firstInitBtn?.addEventListener('click', handleInitProject);
+  firstInitBtn?.addEventListener('click', () => {
+    hideFirstTimeDialog(); // 隐藏网页里的提示框
+    try {
+      if ((window as any).electronAPI && (window as any).electronAPI.requestInitPrompt) {
+        (window as any).electronAPI.requestInitPrompt(); // 通知壳页面弹窗
+      }
+    } catch (_) {}
+  });
 
   // 首次使用提示浮窗：关闭按钮
   const firstCloseBtn = document.getElementById('cuckoo-btn-first-close');
@@ -833,7 +843,11 @@ function bindEvents() {
 
   // 压缩流程：先检查是否处于"段2"（刷新后等 IDB 重建），否则检查"段3"（分享页初始化）
   checkPendingCompact().then((handled) => {
-    if (!handled) checkPendingInit();
+    if (handled) return;
+    // 窗口组转移：刷新后完成分享并回执主进程
+    checkPendingSwitch().then((handled2) => {
+      if (!handled2) checkPendingInit();
+    });
   });
 
   // 键盘快捷键

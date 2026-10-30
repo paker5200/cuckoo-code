@@ -58,7 +58,15 @@ export function renderProjectDir(dirPath: string | null): void {
 
 const pickerEl = document.getElementById('project-picker');
 if (pickerEl) {
-  pickerEl.addEventListener('click', () => { if (api.initProject) api.initProject(); });
+  pickerEl.addEventListener('click', () => {
+    // 如果有暴露的触发方法，直接弹我们漂亮的初始化弹窗
+    if ((window as any).__ckShowInitModal) {
+      (window as any).__ckShowInitModal();
+    } else if (api.initProject) {
+      // 兜底
+      api.initProject();
+    }
+  });
 }
 if (api.onProjectDir) api.onProjectDir((dir: string | null) => renderProjectDir(dir));
 if (api.getProjectDir) {
@@ -76,7 +84,17 @@ if (btnHarness) {
 }
 if (api.onHarnessMode) {
   api.onHarnessMode((d: any) => {
-    if (btnHarness) btnHarness.textContent = (d && d.harness) ? '原版模式' : '纯净模式';
+    if (btnHarness) btnHarness.textContent = (d && d.harness) ? '原' : '净';
+  });
+}
+
+// 地址栏显隐切换（默认隐藏）
+const btnAddress = document.getElementById('btn-address');
+const urlWrap = document.querySelector('.url-wrap');
+if (btnAddress && urlWrap) {
+  btnAddress.addEventListener('click', () => {
+    const hidden = urlWrap.classList.toggle('cuckoo-hidden');
+    if (!hidden && input) { input.focus(); input.select(); }
   });
 }
 
@@ -88,3 +106,18 @@ document.getElementById('btn-home')!.addEventListener('click', () => {
   if ((api as any).newWebConversation) { (api as any).newWebConversation(); return; }
   if (api.home) api.home();
 });
+
+// ===== 自绘标题栏：窗口控制按钮（mac 用系统红绿灯，隐藏自绘按钮）=====
+const isMac = (api as any).platform === 'darwin';
+if (isMac) {
+  const wc = document.querySelector('.ck-win-controls') as any;
+  if (wc) wc.style.display = 'none';
+  document.body.classList.add('ck-mac');
+}
+const btnWinMin = document.getElementById('ck-win-min');
+const btnWinMax = document.getElementById('ck-win-max');
+const btnWinClose = document.getElementById('ck-win-close');
+
+if (btnWinMin) btnWinMin.addEventListener('click', () => { if ((api as any).windowMinimize) (api as any).windowMinimize(); });
+if (btnWinClose) btnWinClose.addEventListener('click', () => { if ((api as any).windowClose) (api as any).windowClose(); });
+if (btnWinMax) btnWinMax.addEventListener('click', () => { if ((api as any).windowMaximize) (api as any).windowMaximize(); });

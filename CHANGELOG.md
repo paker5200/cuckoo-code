@@ -1,5 +1,127 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.8.18] - 2026-10-26
+
+### Added
+- **DSH 插件兼容大幅扩展** —— 插件安装器（pnpm）、插件管理器面板、HMR 热更新、安装进度反馈、DSH 设计令牌兼容层（237 个 `--dsw-*` 变量）、图标兼容层（252 个 DSH 真图标）、DSH CLI 命令 shim、inspect 真检查。
+- **DSH API 覆盖度清单**（`docs/dsh-api-coverage.md`）：对照 DSH 源码自动提取 119 个 Context 服务，标注实现状态（32/119 已实现）。
+- **壳页面全面 React 化**：13 个页面全部迁移（Workspaces/Windows/Files/Agents/Settings/Feishu/Token/Conversations/Snippets/About/Skills/MCP/Plugins）+ 状态栏。
+- **设置页重做**：居中模态、左导航+右内容、自动保存（500ms 防抖）、卡片式开关、插件设置插槽 `settings.section`。
+- **AI 回复拦截可配置**：设置新增「AI 回复拦截」分类，支持自定义正则列表（每行一条，任意命中即拦截）+ 提示语配置。空列表 = 不拦截。
+- **捐赠页**：关于页 + Token 页各展示一份捐赠区块（壹基金 + 捐赠者名单 + 联系方式）。
+- **新增 `DONORS.md`**：捐赠者名单独立页。
+- **README 新增「DSH 插件兼容」章节** + 捐赠章节 + 交流群引导。
+
+### Fixed
+- **会话 ID 生命周期**：彻底废除 `local-xxx` 临时 ID，修复压缩后目录丢失、跨窗口对话错乱、数据库垃圾记录、父子指向自己死循环等一整套问题。
+- **压缩上下文**：`selectProjectDir` 加 `isCompaction` 参数，压缩场景强制写 `pendingProjectDir`；`setSessionLineage` 按 `web_id` 匹配父会话。
+- **插件按 profile 拉起窗口**：`cuckoo-host` 的 `navigateWindowToHome` / `sendUserMessage` 按 `profileId` 找不到窗口时主动拉起，不再回退到"最后一个已打开的窗口"。
+- **打开对话跨窗口跳转**：`navigate-session` 按 `logicId` 查归属 `profile_id`，目标窗口未打开时主动拉起再导航。
+- **子代理窗口不弹初始化遮罩**：子代理自己通过 `initProject(noDialog=true)` 初始化。
+- **非会话非主页 URL 不弹窗**：`/settings` / `/share/xxx` 等页面不再误弹。
+- **关于页**：移除「本版本为插件改造版」文案。
+- **Modal/Menu 修 createPortal**：弹窗不再偏移。
+
+### Changed
+- **package.json description**：去掉 DeepSeek，改为「内嵌式 AI Agent 桌面应用」。
+- **CI release**：`draft: true`（打 tag 后创建草稿 release，人工编辑 release-notes 后手动发布）。
+
+## [0.8.17] - 2026-10-20
+
+### Fixed
+- **压缩上下文**：修复压缩后系统提示词被「上下文交接提示」覆盖的问题（两者分两条消息发送、存在时序竞争；现合并为一条消息）。
+
+## [0.8.16] - 2026-10-15
+
+### Added
+- **用户记忆系统**（新功能，默认关闭）：跨会话/跨项目长期记忆——`remember`/`forgetMemory` 工具 + 正文 `[记忆]xxx` 标记自动捕获 + 系统提示词注入 + 侧边栏管理；保护 `~/.cuckoo/` 用户数据不被文件工具误改。（@8555uuy，PR #40）
+- **记忆功能开关（默认关）**：在「记忆」页一键切换；关闭时工具列表/说明/类型定义不注入、标记不捕获、调用被拒。
+- **工具契约按 feature 拆分**：`ToolApiMeta.feature` → 生成 `api.<feature>.d.ts`（如 `api.memories.d.ts`），仅对应功能启用时注入。
+
+### Fixed
+- **关于页**：移除 PR #36 误带入的「插件改造版」文案，恢复「检查更新」按钮。
+
+## [0.8.15] - 2026-10-15
+
+### Added
+- **上下文耗尽自动续接补发工具结果**：ChatGPT 会话上下文耗尽时，新会话自动带上中断前的工具执行结果（优先待发的，否则最近已发出的），避免 AI 丢失工具结果。
+
+### Fixed
+- **edit 保留未编辑区域换行符**：编辑混合换行符文件时不再全文规整成主导格式，只改写命中区间、逐字节保留未编辑区域行尾，消除 diff 噪音。（@8555uuy，PR #39）
+- **危险命令检测增强**：修复前缀修饰词（`sudo`/`env`/`nohup` 等）、通配符根目录（`rm -rf /*`）、长选项（`--recursive --force`、`--no-preserve-root`）绕过检测。（@8555uuy，PR #38）
+- **窗口组转移复用 IDB 重写**：转移对话时源窗口清 IDB + 刷新 + 等重写，拿到完整对话历史再分享（此前直接读 IDB，同会话内 IDB 未更新导致消息不全）。
+
+### Removed
+- **工具结果末尾提醒**：移除 v0.8.13 加入的「需要给结果或需要用户确认时不要调用工具」提醒（实测对 AI 行为无影响）。
+
+## [0.8.13] - 2026-10-13
+
+### Added
+- **工具结果末尾追加提醒**：工具执行结果回传时，消息末尾追加「需要给结果或需要用户确认时不要调用工具」的提醒，避免 AI 在本该给结论/该问用户时仍继续调工具。
+
+### Fixed
+- **ChatGPT 工具循环稳定**：修复同一条 SSE 流内多条 assistant 消息文本交错、重放帧重复应用导致文本翻倍、6 反引号围栏解析失败等问题（表现为「有 cuckoo 块却不执行」）。
+  - hook 按 assistant 消息 id 分段累积，避免跨消息文本交错。
+  - 只累积正文消息（channel 为 final/null、recipient 为 all/null），排除过程说明消息。
+  - 正文 append 全局去重（服务端重放帧，重复帧间可能夹着其它操作，紧邻去重会失效）。
+  - 围栏按实际反引号数剥离（Markdown 规范允许 3+ 个，兼容 6 反引号场景）。
+- **ChatGPT 初始化填入失败**：`findInput` 改用 `querySelectorAll` 遍历，返回第一个**可见**输入框（页面存在多个 ProseMirror，旧代码命中隐藏元素导致填入静默失败）。
+- **ChatGPT 工具结果发送失败**：`triggerSend` 优先真实鼠标点击发送按钮（不受焦点影响），按钮延迟就绪时循环重试（最多 10 次，交替点击/Enter）。
+- **ChatGPT 填入读回校验**：`fillInput` 写入后读回校验（≥ 期望长度 90%），失败返回 false 让上层重试。
+- **退出/更新重启跳过逐窗口关闭确认**：应用退出或自动更新重启时不再逐窗口弹框确认。
+
+### Changed
+- 开发调试端口默认改为 9334（与项目级 MCP playwright-cuckoo 的 CDP 端点一致）。
+
+### Internal
+- 新增上下文耗尽自动续接链路（hook 检测 `conversation_detail_metadata.banner_info` → bridge → IPC → 导航首页 + 保持项目目录）。**真机未验证触发**，详见 023 需求档案。
+
+## [0.8.12] - 2026-10-13
+
+### Added
+- **工具执行遮罩支持取消**：工具调用执行期间遮罩显示「停止」按钮，长任务可中途取消。
+- **压缩后上下文交接提示**：长会话压缩后提示 AI 主动读文件补全上下文，避免盲目相信残缺摘要。
+
+### Changed
+- **输入框填入统一改用 `execCommand('insertText')` + 读回校验**：修复合成 `ClipboardEvent('paste')`（`isTrusted=false`）被 ProseMirror 等站点拒收导致的填入静默失败。
+
+### Fixed
+- **ChatGPT 多消息流适配**：修复同一条流内多条 assistant 消息场景下，后续含 cuckoo 块的消息被提前锁定丢弃（表现为「输出了代码块却提示未检测到工具调用」「工具只调一次就不调了」）。新增 `endTurn` 区分消息级/整轮结束，新增 `overwriteText` 防正文被纯文字覆盖。（@brownie19850318，PR #49）
+- **关窗释放渲染进程**：修复窗口关闭时子视图（WebContentsView）渲染进程不释放（孤儿进程 + 内存泄漏）。
+- **webserver** 改用 `createRequire` 加载 electron（与项目其它 IPC 模块风格统一）。
+
+## [0.8.11] - 2026-10-11
+
+### Added
+- **DSH 插件兼容（C1–C6 全接真）**：Cuckoo 里可直接**安装/运行 DSH 插件**（npm 包，原样不改），
+  不依赖任何 DSH 代码（自己实现 `@deepseek-ai/*` 同名 API）。含 `ctx.settings/tools/sessions`（C1）、
+  最小 DSH 运行时（C2）、事件总线（C3）、`systemPrompt/fs/agents`（C4）、会话落盘 JSONL + 重放（C5）、
+  `skills/commands/goals/compaction/workspaceFiles/sessionTitle/tokenMeter`（C6）。需求档案 022。
+- **可执行插件运行时（对标 DSH）**：函数/对象/类三种插件形态、5 种事件派发
+  （emit/parallel/serial/bail/waterfall）、服务 provide/inject、可逆副作用（effect/scope）、
+  资源（assets）、工具注册（tools.register）、agents/sessions 核心映射、插件配置（config schema）。
+- **主题系统（对标 DSH ui-theme）**：`ctx.theme`（register / overrideTokens / setTheme / getTheme / list +
+  theme/change 事件）；主进程权威 + 渲染进程 IPC 代理；`--ck-*` token 体系；自绘标题栏；设置页「外观」分区；
+  主题持久化；AI 页面跟随系统主题（nativeTheme，不侵入 AI 页面）。
+- **UI 原子能力**：`ctx.ui.overlay`（覆盖层）、`ctx.ui.shell`（壳页面挂载）、`ctx.ui.slot`（通用槽位）、
+  `ctx.ui.shell.addStyle`（注入壳页面 CSS）、`ctx.ui.setWebViewVisible`、`ctx.ui.setWindowMaterial`。
+- **纯净模式集成**：透明 harness 视图 + `harness/change` 事件。
+- **ChatGPT 登录态完整适配**：回复拦截三态化、SSE 裸 `{v:[...]}` 帧解析修复、
+  `fillInput`（execCommand）+ `triggerSend`（真实 Enter）、Google OAuth 指纹修正。（@yangjh888，PR #47）
+- 插件开发文档（`docs/plugin-system.md` / `docs/plugin-dev.md`）、示例插件与模板、单元测试。
+
+### Changed
+- 地址栏改为可切换按钮（默认隐藏，地球图标）；纯净模式切换键改「净」/「原」字；mac 红绿灯兼容（hiddenInset）。
+- 关闭窗口前弹框确认（删除窗口等程序主动关闭除外）。
+- 项目目录选择框默认打开上次的目录（全局记忆，跨对话/窗口）。
+
+### Fixed
+- **ChatGPT**：`extractSessionId` 只认完整 UUID —— 修复中间态 `local-chatgpt` 被当真实会话 ID，
+  导致初始化后 GPT 拿不到项目目录。
+- 文件树按自然序排列（v0.8.10 排在 v0.8.9 之后）；清除源码中字面 NUL 字节。
+
 ## [0.8.10] - 2026-10-06
 
 ### Added

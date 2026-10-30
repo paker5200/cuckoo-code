@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getProvider } from '../providers/registry.js';
 import * as mcpClient from '../mcp/client.js';
-import { resolveSrc, resolveToolSpec } from '../infra/paths.js';
+import { resolveSrc, resolveToolSpec, resolveToolSpecFeature } from '../infra/paths.js';
+import { getEnabledToolFeatures } from '../infra/config.js';
 import { registry as toolRegistry } from '../tools/index.js';
 import { scanSkills, buildSkillsSection } from '../skills/index.js';
 import { scanAgents, buildAgentsSection } from '../agents/index.js';
@@ -14,6 +15,9 @@ import { scanRules, getUnscopedRules, buildUnscopedRulesSection } from '../rules
 // 直接引 roots 子模块（不走 plugins 的 barrel），避免把整个插件模块图拉进来
 import { getPluginScanRoots } from '../plugins/roots.js';
 import type { PluginScanRoots } from '../plugins/roots.js';
+// DSH 插件注册的提示词段（C4）
+import { getPromptSections as getDshPromptSections } from '../plugins/dsh-compat/prompt-sections.js';
+import { buildMemorySection } from '../infra/memories.js';
 
 // 提示词模板目录（D20：锚定应用根，与 dist 结构解耦）
 const PROMPT_DIR = resolveSrc('prompt');
@@ -149,13 +153,27 @@ function buildPrompt(opts: { providerId: string; selectedDir: string; isCompacti
   let toolApiTypes = '';
   try {
     toolApiTypes = fs.readFileSync(resolveToolSpec(), 'utf-8');
+    // 追加已启用功能分组的类型定义（如记忆功能开启时注入 api.memories.d.ts）
+    for (const feat of getEnabledToolFeatures()) {
+      try {
+        const spec = fs.readFileSync(resolveToolSpecFeature(feat), 'utf-8');
+        if (spec) toolApiTypes += '\n\n' + spec;
+      } catch (_) { /* 该 feature 文件不存在则跳过 */ }
+    }
   } catch (err) { /* 找不到时保持空串 */ }
   if (!toolApiTypes) {
     console.error('[Cuckoo Code] 读取 cuckoo-tools.d.ts 失败:', resolveToolSpec());
   }
 
   const toolsDescription = toolRegistry.getFormattedJsApiForPrompt();
-  const promptSections = toolRegistry.getFormattedPromptSections();
+  // C4：DSH 插件注册的提示词段（与工具 section 合并）
+  let dshSections = '';
+  try {
+    const secs = getDshPromptSections();
+    if (secs.length > 0) dshSections = secs.map((s) => s.text).join('\n\n');
+  } catch (_) { /* ignore */ }
+  const toolSections = toolRegistry.getFormattedPromptSections();
+  const promptSections = dshSections ? (toolSections + '\n\n' + dshSections) : toolSections;
 
   // 后台异步连接已启用的 MCP server，不阻塞初始化（按当前项目）
   mcpClient.connectEnabledServers(selectedDir).catch((err: any) => {
@@ -179,6 +197,11 @@ function buildPrompt(opts: { providerId: string; selectedDir: string; isCompacti
   const agentsSection = buildAgentsSection(scanAgents(selectedDir, pluginRoots.agentDirs));
   // 无 paths 的规则：始终注入（「## 项目规则」章节）
   const rulesSection = buildUnscopedRulesSection(getUnscopedRules(scanRules(selectedDir, pluginRoots.ruleDirs)));
+  // 用户记忆（跨项目）：让模型了解用户习惯
+  let memorySection = '';
+  try { memorySection = buildMemorySection(); } catch (err: any) {
+    console.warn('[Cuckoo Code] 读取用户记忆失败:', err && err.message ? err.message : String(err));
+  }
 
   const placeholders: Record<string, string> = {
     '{{TOOL_API_TYPES}}': toolApiTypes,
@@ -191,6 +214,7 @@ function buildPrompt(opts: { providerId: string; selectedDir: string; isCompacti
     '{{SKILLS_SECTION}}': skillsSection,
     '{{AGENTS_SECTION}}': agentsSection,
     '{{PROJECT_RULES_SECTION}}': rulesSection,
+    '{{MEMORY_SECTION}}': memorySection,
   };
   let combined = tpl.content;
   for (const [key, value] of Object.entries(placeholders)) {

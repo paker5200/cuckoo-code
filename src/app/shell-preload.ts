@@ -7,7 +7,19 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { contextBridge, ipcRenderer } = require('electron');
 
+// 平台（主进程经 additionalArguments 传入）：mac 上保留系统红绿灯、隐藏自绘窗口按钮
+const platformArg = (process.argv || []).find((a) => a.startsWith('--cuckoo-platform='));
+const platform = platformArg ? platformArg.slice('--cuckoo-platform='.length) : process.platform;
+
 const shellAPI = {
+  platform,
+  selectProjectDir: () => ipcRenderer.invoke('select-project-dir'),
+  cancelInitPrompt: () => ipcRenderer.send('cancel-init-prompt'),
+  sendNormalMessage: (text: string) => ipcRenderer.invoke('send-normal-message', { text }),
+  sendInitMessage: (text: string, projectDir: string) => ipcRenderer.invoke('send-init-message', { text, projectDir }),
+  onShowInitPrompt: (cb: (data?: any) => void) => {
+    ipcRenderer.on('shell-show-init-prompt', (_e: any, data?: any) => cb(data));
+  },
   navigate: (url: string) => ipcRenderer.invoke('shell-navigate', { url }),
   back: () => ipcRenderer.invoke('shell-back'),
   forward: () => ipcRenderer.invoke('shell-forward'),
@@ -25,6 +37,8 @@ const shellAPI = {
   onTotalUpdated: (cb: (data: any) => void) => {
     ipcRenderer.on('shell-total-updated', (_e: any, data: any) => cb(data));
   },
+  /** 拉取最近一次 token / tps（页面挂载时用） */
+  getTokenUsage: () => ipcRenderer.invoke('get-token-usage'),
   getSystemTotal: () => ipcRenderer.invoke('get-system-total'),
   getProjectDir: () => ipcRenderer.invoke('get-project-dir'),
   // 点击"项目目录" → 弹目录选择框 + 重新初始化（复用 init-project 通道）
@@ -33,6 +47,8 @@ const shellAPI = {
     ipcRenderer.on('shell-project-dir', (_e: any, dir: any) => cb(dir));
   },
   toggleSidebar: (width: number) => ipcRenderer.invoke('shell-toggle-sidebar', { width }),
+  // 隐藏/显示 AI 视图（壳页面弹窗需要盖过 AI 区域时用）
+  setAiViewVisible: (visible: boolean) => ipcRenderer.invoke('shell-set-ai-view-visible', { visible }),
   // 侧边栏拖拽调宽（AI 视图会临时移出，鼠标事件全落在壳页面；主进程轮询算宽度后推回）
   startSidebarDrag: () => ipcRenderer.send('shell-sidebar-drag-start'),
   endSidebarDrag: () => ipcRenderer.send('shell-sidebar-drag-end'),
@@ -50,6 +66,50 @@ const shellAPI = {
   onHarnessMode: (cb: (data: any) => void) => {
     ipcRenderer.on('shell-harness-mode', (_e: any, data: any) => cb(data));
   },
+  // 插件界面挂载（主进程 → 壳页面）
+  onPluginShellMount: (cb: (data: any) => void) => {
+    ipcRenderer.on('shell-plugin-mount', (_e: any, data: any) => cb(data));
+  },
+  // 拉取"已缓存的插件挂载"（壳页面就绪后补渲染）
+  listPluginShellMounts: () => ipcRenderer.invoke('plugin-shell-list'),
+  // 插件注入壳页面 CSS
+  onPluginShellStyle: (cb: (data: any) => void) => {
+    ipcRenderer.on('shell-plugin-style', (_e: any, data: any) => cb(data));
+  },
+  onPluginShellStyleRemove: (cb: (data: any) => void) => {
+    ipcRenderer.on('shell-plugin-style-remove', (_e: any, data: any) => cb(data));
+  },
+  listPluginShellStyles: () => ipcRenderer.invoke('plugin-shell-style-list'),
+  // 插件背景图（基座对齐）
+  onShellBackground: (cb: (data: any) => void) => {
+    ipcRenderer.on('shell-background', (_e: any, data: any) => cb(data));
+  },
+  getShellBackground: () => ipcRenderer.invoke('plugin-shell-background-list'),
+  // 命令（插件命令，工具栏按钮等触发）
+  commandInvoke: (commandId: string) => ipcRenderer.invoke('plugin-command-invoke', { commandId }),
+  commandList: () => ipcRenderer.invoke('plugin-command-list'),
+  // 通用槽位
+  // P2：DSH remote.$on 事件（plugin-manager/changed 等）
+  onRemoteEvent: (cb: (evt: string, data: any) => void) => {
+    ipcRenderer.on('plugin-manager-changed', (_e: any, d: any) => cb('plugin-manager/changed', d));
+    ipcRenderer.on('plugin-manager-install-log', (_e: any, d: any) => cb('plugin-manager/install-log', d));
+    ipcRenderer.on('plugin-manager-install-state', (_e: any, d: any) => cb('plugin-manager/install-state', d));
+  },
+  // HMR：主进程通知壳页面重载 DSH client（插件启用/禁用后）
+  onCuckooReload: (cb: (data: any) => void) => {
+    ipcRenderer.on('cuckoo-reload-dsh-clients', (_e: any, d: any) => cb(d));
+  },
+  onPluginSlotRegister: (cb: (m: any) => void) => { ipcRenderer.on('shell-slot-register', (_e: any, m: any) => cb(m)); },
+  onPluginSlotUnregister: (cb: (m: any) => void) => { ipcRenderer.on('shell-slot-unregister', (_e: any, m: any) => cb(m)); },
+  listPluginSlots: () => ipcRenderer.invoke('plugin-slot-list'),
+  // 插件本地 HTTP 服务端口（壳页面 fetch /api/* 需要）
+  webServerInfo: () => ipcRenderer.invoke('plugin-webserver-info'),
+  webRoutes: () => ipcRenderer.invoke('plugin-web-routes'),
+  // 壳页面令牌（fetch 时带 X-Cuckoo-Shell 头，让插件的同源检查放行）
+  getShellToken: () => ipcRenderer.invoke('shell-token'),
+  // 插件配置
+  pluginConfigGet: (pluginId: string) => ipcRenderer.invoke('plugin-config-get', { pluginId }),
+  pluginConfigSet: (pluginId: string, values: any) => ipcRenderer.invoke('plugin-config-set', { pluginId, values }),
   // 壳页面上报真实可视尺寸（供主进程精确布局 WebContentsView，避免菜单栏高度误差）
   reportShellSize: (w: number, h: number) => ipcRenderer.send('shell-report-size', { w, h }),
   // ========== 窗口组 ==========
@@ -92,6 +152,19 @@ const shellAPI = {
   onSessionsChanged: (cb: () => void) => {
     ipcRenderer.on('shell-sessions-changed', () => cb());
   },
+  // ========== 自绘标题栏：窗口控制 ==========
+  windowMinimize: () => ipcRenderer.invoke('shell-window-minimize'),
+  windowMaximize: () => ipcRenderer.invoke('shell-window-maximize'),
+  windowClose: () => ipcRenderer.invoke('shell-window-close'),
+  windowIsMaximized: () => ipcRenderer.invoke('shell-window-is-maximized'),
+  // ========== 主题 ==========
+  themeGet: () => ipcRenderer.invoke('theme-get'),
+  themeSet: (id: string) => ipcRenderer.invoke('theme-set', { id }),
+  themeList: () => ipcRenderer.invoke('theme-list'),
+  themeSubscribe: () => ipcRenderer.invoke('theme-subscribe'),
+  onThemeChanged: (cb: (snapshot: any) => void) => {
+    ipcRenderer.on('theme-changed', (_e: any, snap: any) => cb(snap));
+  },
   // ========== 技能 ==========
   listSkills: () => ipcRenderer.invoke('list-skills'),
   // ========== 子代理 ==========
@@ -120,6 +193,23 @@ const shellAPI = {
   pluginSetEnabled: (id: string, enabled: boolean) =>
     ipcRenderer.invoke('plugin-set-enabled', { id, enabled }),
   pluginOpenDir: () => ipcRenderer.invoke('plugin-open-dir'),
+  // ===== Cuckoo 插件（DSH 兼容）=====
+  cuckooPluginList: () => ipcRenderer.invoke('cuckoo-plugin-list'),
+  cuckooPluginInstall: (pkgName: string) => ipcRenderer.invoke('cuckoo-plugin-install', { pkgName }),
+  /** DSH 插件 client 入口源码 */
+  cuckooPluginClientSources: () => ipcRenderer.invoke('cuckoo-plugin-client-sources'),
+  cuckooPluginUninstall: (id: string) => ipcRenderer.invoke('cuckoo-plugin-uninstall', { id }),
+  cuckooPluginToggle: (id: string, enabled: boolean) => ipcRenderer.invoke('cuckoo-plugin-toggle', { id, enabled }),
+  cuckooPluginOpenDir: () => ipcRenderer.invoke('cuckoo-plugin-open-dir'),
+  // DSH plugin-manager RPC（对齐 remote.pluginManager / remote.pluginInventory）
+  pluginManagerListBundles: () => ipcRenderer.invoke('plugin-manager-list-bundles'),
+  pluginManagerListPlugins: () => ipcRenderer.invoke('plugin-manager-list-plugins'),
+  pluginManagerSetEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('plugin-manager-set-enabled', { id, enabled }),
+  pluginManagerRemoveBundle: (name: string) => ipcRenderer.invoke('plugin-manager-remove-bundle', { name }),
+  pluginManagerInstallBundle: (spec: string, opts?: any) => ipcRenderer.invoke('plugin-manager-install-bundle', { spec, opts }),
+  pluginManagerInspect: (spec: string) => ipcRenderer.invoke('plugin-manager-inspect', { spec }),
+  pluginManagerCancelInstall: () => ipcRenderer.invoke('plugin-manager-cancel-install'),
+  pluginInventoryList: () => ipcRenderer.invoke('plugin-inventory-list'),
   // ========== 关于 ==========
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),
   checkUpdate: () => ipcRenderer.invoke('check-update'),
@@ -138,10 +228,25 @@ const shellAPI = {
   getAutoCompact: () => ipcRenderer.invoke('get-autocompact'),
   saveAutoCompact: (data: any) => ipcRenderer.invoke('save-autocompact', { data }),
   triggerCompact: () => ipcRenderer.invoke('trigger-compact'),
+  // ========== 记忆 ==========
+  listMemories: () => ipcRenderer.invoke('list-memories'),
+  getMemoriesEnabled: () => ipcRenderer.invoke('get-memories-enabled'),
+  setMemoriesEnabled: (enabled: boolean) => ipcRenderer.invoke('set-memories-enabled', { enabled }),
+  saveMemories: (memories: any) => ipcRenderer.invoke('save-memories', { memories }),
+  addMemory: (text: string) => ipcRenderer.invoke('add-memory', { text }),
+  deleteMemory: (id: string) => ipcRenderer.invoke('delete-memory', { id }),
+  onMemoriesChanged: (cb: () => void) => {
+    ipcRenderer.on('shell-memories-changed', () => cb());
+  },
   // ========== 设置 ==========
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (data: any) => ipcRenderer.invoke('save-settings', { data }),
   resetSettings: () => ipcRenderer.invoke('reset-settings'),
+  // ========== 日志（仅打包版生效）==========
+  getLogInfo: () => ipcRenderer.invoke('get-log-info'),
+  setLogEnabled: (enabled: boolean) => ipcRenderer.invoke('set-log-enabled', { enabled }),
+  deleteLogs: () => ipcRenderer.invoke('delete-logs'),
+  openLogDir: () => ipcRenderer.invoke('open-log-dir'),
 };
 
 try {
