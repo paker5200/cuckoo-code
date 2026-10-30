@@ -410,9 +410,10 @@ function registerShellIpc(): void {
       for (const win of windows) {
         if (!win || win.isDestroyed()) continue;
         
+        // 1. 强制设置状态位为 false
         win.__ckAiViewVisible = false;
         
-        // 暴力遍历清除
+        // 2. 暴力遍历并隐藏所有原生子视图
         if (win.contentView && win.contentView.children) {
           for (const child of win.contentView.children) {
             if (child.webContents === event.sender) continue;
@@ -421,7 +422,7 @@ function registerShellIpc(): void {
           }
         }
         
-        // 强制重置状态并重排
+        // 3. 调用原作者的强制重排，让 layoutView 按 false 状态执行
         if (typeof win.__ckSetAiViewVisible === 'function') {
           win.__ckSetAiViewVisible(false);
         } else if (typeof win.__ckLayout === 'function') {

@@ -31526,6 +31526,7 @@ body {
     const onSettingsClick = () => {
       const sidebar = document.getElementById("ck-sidebar");
       if (sidebar && sidebar.classList.contains("ck-collapsed")) expandSidebar();
+      window.__ckModalOpen = true;
       const anyApi = api;
       if (anyApi.hideNativeViews) anyApi.hideNativeViews().catch(() => {
       });
@@ -31533,6 +31534,7 @@ body {
     };
     const closeSettings = () => {
       setSettingsOpen(false);
+      window.__ckModalOpen = false;
       const anyApi = api;
       if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {
       });

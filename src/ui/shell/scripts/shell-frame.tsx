@@ -199,7 +199,7 @@ function ShellFrame() {
     const anyApi = api as any;
     const shouldHide = isMainSlotActive || settingsOpen;
     
-    // 【核心】记录最高优先级遮挡状态，防止其他弹窗退出时把 AI 视图放出来
+    // 记录最高优先级遮挡状态
     (window as any).__ckModalOpen = shouldHide;
     
     if (shouldHide) {
@@ -212,13 +212,19 @@ function ShellFrame() {
   const onSettingsClick = () => {
     const sidebar = document.getElementById('ck-sidebar');
     if (sidebar && sidebar.classList.contains('ck-collapsed')) expandSidebar();
+    
+    // 【关键】同步上锁，立刻隐藏，不给任何异步竞态留机会
+    (window as any).__ckModalOpen = true;
     const anyApi = api as any;
     if (anyApi.hideNativeViews) anyApi.hideNativeViews().catch(() => {});
+    
     setSettingsOpen(true);
   };
 
   const closeSettings = () => {
     setSettingsOpen(false);
+    // 同步解锁，恢复视图
+    (window as any).__ckModalOpen = false;
     const anyApi = api as any;
     if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {});
   };
