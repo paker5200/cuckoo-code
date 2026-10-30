@@ -405,40 +405,37 @@ function registerShellIpc(): void {
   // 隐藏/显示 AI 视图——壳页面弹窗需要"盖过 AI 区域"时用
   ipcMain.handle('shell-set-ai-view-visible', async (event: any, { visible }: any) => {
     try {
-      const contexts = (windowState as any).getAllContexts ? (windowState as any).getAllContexts() : [];
+      const { BrowserWindow } = require('electron');
+      const windows = BrowserWindow.getAllWindows();
       
-      for (const ctx of contexts) {
-        if (!ctx.win || ctx.win.isDestroyed()) continue;
-        const win = ctx.win;
+      for (const win of windows) {
+        if (!win || win.isDestroyed()) continue;
         
         win.__ckAiViewVisible = visible;
         
-        // 强制隐藏/显示并操作视图树
-        const view = ctx.view;
-        const harnessView = ctx.harnessView;
-        
-        if (view) {
-          try { view.setVisible(visible); } catch (_) {}
-          if (!visible) try { view.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
-        }
-        if (harnessView) {
-          try { harnessView.setVisible(visible); } catch (_) {}
-          if (!visible) try { harnessView.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
-        }
-        
-        try {
-          if (win.contentView) {
+        // 暴力遍历 contentView.children（底层原生视图，绝对能拿到）
+        if (win.contentView && win.contentView.children) {
+          const children = [...win.contentView.children];
+          for (const child of children) {
+            // 如果这是壳页面（发 IPC 的页面），千万不能动它
+            if (child.webContents === event.sender) continue;
+            
+            // 剩下的肯定是 AI 页面或 Harness 页面，强制隐藏/显示
+            try { child.setVisible(visible); } catch (_) {}
+            
             if (!visible) {
-              if (view) { try { win.contentView.removeChildView(view); } catch (_) {} }
-              if (harnessView) { try { win.contentView.removeChildView(harnessView); } catch (_) {} }
+              // 1. 尺寸清零
+              try { child.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
+              // 2. 从视图树中移除（物理隔绝，绝对无法遮挡）
+              try { win.contentView.removeChildView(child); } catch (_) {}
             } else {
-              if (view) { try { win.contentView.addChildView(view); } catch (_) {} }
-              if (harnessView) { try { win.contentView.addChildView(harnessView); } catch (_) {} }
+              // 恢复时重新加回来
+              try { win.contentView.addChildView(child); } catch (_) {}
             }
           }
-        } catch (_) {}
+        }
         
-        // 触发重排以更新尺寸
+        // 触发重排（让 layoutView 计算正确的位置）
         if (typeof win.__ckLayout === 'function') {
           try { win.__ckLayout(); } catch (_) {}
         }
