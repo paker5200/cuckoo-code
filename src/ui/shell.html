@@ -31513,10 +31513,12 @@ body {
     const Page = (0, import_react8.useMemo)(() => PAGES[activeTab], [activeTab]);
     (0, import_react8.useEffect)(() => {
       const anyApi = api;
-      if (isMainSlotActive) {
+      const shouldHide = isMainSlotActive || settingsOpen;
+      window.__ckModalOpen = shouldHide;
+      if (shouldHide) {
         if (anyApi.hideNativeViews) anyApi.hideNativeViews().catch(() => {
         });
-      } else if (!settingsOpen) {
+      } else {
         if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {
         });
       }

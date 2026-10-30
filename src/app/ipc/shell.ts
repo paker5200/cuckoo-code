@@ -409,31 +409,23 @@ function registerShellIpc(): void {
       const windows = BrowserWindow.getAllWindows();
       for (const win of windows) {
         if (!win || win.isDestroyed()) continue;
+        
         win.__ckAiViewVisible = false;
         
-        try {
-          const contexts = (windowState as any).getAllContexts ? (windowState as any).getAllContexts() : [];
-          for (const ctx of contexts) {
-            if (ctx.view && !ctx.view.webContents.isDestroyed()) {
-              ctx.view.setVisible(false);
-              ctx.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-            }
-            if (ctx.harnessView && !ctx.harnessView.webContents.isDestroyed()) {
-              ctx.harnessView.setVisible(false);
-              ctx.harnessView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-            }
+        // 暴力遍历清除
+        if (win.contentView && win.contentView.children) {
+          for (const child of win.contentView.children) {
+            if (child.webContents === event.sender) continue;
+            try { child.setVisible(false); } catch (_) {}
+            try { child.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
           }
-          if (win.contentView && win.contentView.children) {
-            for (const child of win.contentView.children) {
-              if (child.webContents === event.sender) continue;
-              try { child.setVisible(false); } catch (_) {}
-              try { child.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
-            }
-          }
-        } catch (_) {}
+        }
         
-        if (typeof win.__ckLayout === 'function') {
-          try { win.__ckLayout(); } catch (_) {}
+        // 强制重置状态并重排
+        if (typeof win.__ckSetAiViewVisible === 'function') {
+          win.__ckSetAiViewVisible(false);
+        } else if (typeof win.__ckLayout === 'function') {
+          win.__ckLayout();
         }
       }
     } catch (err: any) {

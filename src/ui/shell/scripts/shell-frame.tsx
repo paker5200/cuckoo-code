@@ -194,12 +194,17 @@ function ShellFrame() {
   const isMainSlotActive = !!(mainSlotItem && mainSlotItem.Component);
   // 常规页面（侧栏里渲染）
   const Page = useMemo(() => PAGES[activeTab], [activeTab]);
-  // DSH main 插槽激活时：隐藏 AI view
+  // 当设置模态打开，或 DSH 主插槽激活时，隐藏原生 AI 视图
   useEffect(() => {
     const anyApi = api as any;
-    if (isMainSlotActive) {
+    const shouldHide = isMainSlotActive || settingsOpen;
+    
+    // 【核心】记录最高优先级遮挡状态，防止其他弹窗退出时把 AI 视图放出来
+    (window as any).__ckModalOpen = shouldHide;
+    
+    if (shouldHide) {
       if (anyApi.hideNativeViews) anyApi.hideNativeViews().catch(() => {});
-    } else if (!settingsOpen) {
+    } else {
       if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {});
     }
   }, [isMainSlotActive, settingsOpen]);
