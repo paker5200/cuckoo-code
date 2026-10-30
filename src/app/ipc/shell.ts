@@ -422,28 +422,22 @@ function registerShellIpc(): void {
     if (!ctx) ctx = windowState.getMainContext();
     if (!ctx) return { success: false, error: '找不到窗口上下文' };
 
-    // 优先调用原作者在 entry.ts 中定义的 __ckSetAiViewVisible
-    if (!visible) {
-      // 强制隐藏 AI 视图
-      try { if (ctx.view && !ctx.view.webContents.isDestroyed()) { ctx.view.setVisible(false); } } catch (_) {}
-      try { if ((ctx as any).harnessView && !(ctx as any).harnessView.webContents.isDestroyed()) { (ctx as any).harnessView.setVisible(false); } } catch (_) {}
-      // 通知 layoutView 不要显示它
-      if (typeof (ctx.win as any).__ckSetAiViewVisible === 'function') {
-        (ctx.win as any).__ckSetAiViewVisible(false);
-      } else {
-        (ctx.win as any).__ckAiViewVisible = false;
-        try { if (typeof (ctx.win as any).__ckLayout === 'function') (ctx.win as any).__ckLayout(); } catch (_) {}
+    // 全局遍历所有窗口上下文，强制设置显隐（兼容多窗口/子代理窗口）
+    const contexts = (windowState as any).getAllContexts ? (windowState as any).getAllContexts() : [];
+    if (contexts.length === 0) {
+      // 保底：至少处理当前反查到的 ctx
+      contexts.push(ctx);
+    }
+    for (const c of contexts) {
+      if (!c || !c.win || c.win.isDestroyed()) continue;
+      c.win.__ckAiViewVisible = visible;
+      try { if (c.view && !c.view.webContents.isDestroyed()) c.view.setVisible(visible); } catch (_) {}
+      try { if (c.harnessView && !c.harnessView.webContents.isDestroyed()) c.harnessView.setVisible(visible); } catch (_) {}
+      if (!visible) {
+        try { if (c.view && !c.view.webContents.isDestroyed()) c.view.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
+        try { if (c.harnessView && !c.harnessView.webContents.isDestroyed()) c.harnessView.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
       }
-    } else {
-      // 强制显示 AI 视图
-      try { if (ctx.view && !ctx.view.webContents.isDestroyed()) ctx.view.setVisible(true); } catch (_) {}
-      try { if ((ctx as any).harnessView && !(ctx as any).harnessView.webContents.isDestroyed()) (ctx as any).harnessView.setVisible(true); } catch (_) {}
-      if (typeof (ctx.win as any).__ckSetAiViewVisible === 'function') {
-        (ctx.win as any).__ckSetAiViewVisible(true);
-      } else {
-        (ctx.win as any).__ckAiViewVisible = true;
-        try { if (typeof (ctx.win as any).__ckLayout === 'function') (ctx.win as any).__ckLayout(); } catch (_) {}
-      }
+      try { if (typeof c.win.__ckLayout === 'function') c.win.__ckLayout(); } catch (_) {}
     }
     return { success: true };
   });

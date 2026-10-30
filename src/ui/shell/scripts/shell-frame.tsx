@@ -198,6 +198,8 @@ function ShellFrame() {
   useEffect(() => {
     const anyApi = api as any;
     const shouldHide = isMainSlotActive || settingsOpen;
+    // 记录最高优先级遮挡状态，防止其他弹窗退出时把 AI 视图放出来
+    (window as any).__ckModalOpen = shouldHide;
     if (anyApi.setAiViewVisible) {
       anyApi.setAiViewVisible(!shouldHide).catch(() => {});
     }
@@ -273,7 +275,7 @@ function ShellFrame() {
     // 设置模态（Portal 挂到 body，全窗遮罩 + 居中对话框）
     settingsOpen ? createPortal(
       createElement(SettingsModal, { onClose: () => setSettingsOpen(false) }),
-      document.body,
+      document.getElementById('ck-modal-root') || document.body,
     ) : null,
   );
 }

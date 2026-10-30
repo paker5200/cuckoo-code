@@ -40,7 +40,7 @@ function ToggleRow({ label, desc, checked, onChange }: { label: string; desc?: s
 
 /** 设置全屏模态 */
 export function SettingsModal({ onClose }: { onClose: () => void }) {
-  useHideAiView();
+  // 显隐由外层 shell-frame 统一接管，避免重复调用造成竞态
 
   const [data, setData] = useState<any>(null);
   const [themes, setThemes] = useState<[string, string][]>(THEME_BUILTINS);
@@ -322,14 +322,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       content = createElement('div', { className: 'ck-list-empty' }, '插件设置不可用');
     }
   }
-
-  // 强制把模态框移到 body 下，避免被侧边栏裁剪
-  useEffect(() => {
-    const mask = document.querySelector('.ck-settings-mask');
-    if (mask && mask.parentNode !== document.body) {
-      document.body.appendChild(mask);
-    }
-  }, []);
 
   return createElement('div', { 
     className: 'ck-settings-mask', 
