@@ -10,11 +10,11 @@
 | 项 | 值 |
 |---|---|
 | 定制版名称 | Cuckoo Code Flash |
-| 基于上游版本 | 0.8.10（已合并；定制基线为 0.8.7） |
+| 基于上游版本 | 0.8.18（已合并；定制基线为 0.8.7） |
 | 定制基线 tag | flash-v0.8.7（历史锚点，不动） |
 | 定制开发分支 | flash-dev |
 | 上游仓库 | https://github.com/wangyongpeng90/cuckoo-code |
-| 上游最新版本 | 0.8.10（已合并；tag 之后另有 13 个插件相关 commit 未纳入） |
+| 上游最新版本 | 0.8.18（已合并） |
 | 本 fork 仓库 | https://github.com/paker5200/cuckoo-code |
 | 定制目的 | ①新增"自动开启新对话"上下文策略 ②改名为独立应用，与原版并存 |
 
@@ -146,15 +146,27 @@
   - 上游 0.8.10 已自行修复此 bug（goalMax: number | null，缺失时保留原值）。
     ✅ 合并 0.8.10 时已接受上游版本，本定制点不再需要，后续冲突直接取上游即可。
 
-- **src/ui/shell/partials/pages/token.html**
-  - "自动压缩"开关（ck-switch）→ "上下文策略"三选一单选（ck-radio-group）
+- **src/ui/shell/scripts/pages/token-react.tsx**（★v0.8.18 起的主战场）
+  - 上游已把 Token 页从 HTML+TS 重构为 React 组件（`registerPage('token', TokenPage)`）。
+  - 我们的定制已迁移进此文件：`auto` 状态由 `{ enabled: boolean }` 改为 `{ mode: 'off'|'compact'|'new-chat' }`；
+  - UI 从"自动压缩开关"（ck-switch）改为"上下文策略"三选一单选（ck-radio-group）；
+  - `loadAuto` 读 `r.data.mode`；`onSaveAuto` 提交 `{ mode, threshold }`，
+    且 mode==='new-chat' 成功后弹窗反馈 progressFolder / progressCreated / progressHint。
+  - ⚠️ 下次合并若上游再改此文件，重点保住 mode 三态、radio 组、new-chat 弹窗反馈这三块。
 
-- **src/ui/shell/scripts/pages/token.ts**
-  - loadAutoCompact / 保存逻辑改为读写 mode（name="tk-context-mode" 的 radio）
-  - 保存 new-chat 成功后弹窗反馈文件夹路径，并说明"发布任务后 AI 会自动维护进度文件"
+- **src/ui/shell/partials/pages/token.html**（v0.8.18 起已废弃）
+  - 上游改 React 后此文件不再被加载（`main.ts` 只 import token-react）。
+  - 我们在此文件里加的三选一 radio 已迁移到 token-react.tsx；此文件可忽略或删除。
+
+- **src/ui/shell/scripts/pages/token.ts**（v0.8.18 起已废弃）
+  - 同上，已被 token-react.tsx 取代，定制逻辑已迁移。不再有引用点。
 
 - **src/ui/shell/styles/pages.css**
-  - 新增 .ck-radio-group / .ck-radio-item 样式
+  - 新增 .ck-radio-group / .ck-radio-item 样式（v0.8.18 合并时已保留）
+
+- **src/ui/shell/scripts/pages/about-react.tsx**（★v0.8.18 起）
+  - 上游 about 页也 React 化了，且链接被改回 wangyongpeng90。
+  - 需改回 paker5200：`openExternal('https://github.com/paker5200/cuckoo-code')` + 显示文本。
 
 ### 🔵 改名相关改动（机械性，冲突时按"保留 Flash 名"原则处理）
 
@@ -177,11 +189,24 @@
 - **src/app/ipc/renderer.ts**
   - 通知窗口名 'Cuckoo Code' → 'Cuckoo Code Flash'
 
-- **src/ui/shell/partials/pages/about.html**
-  - github 链接 wangyongpeng90 → paker5200
+- **src/ui/shell/scripts/pages/about-react.tsx**
+  - github 链接 wangyongpeng90 → paker5200（2 处：openExternal 的 URL + 显示文本）
+  - ⚠️ v0.8.18 起 about 页已 React 化，旧的 partials/pages/about.html 与 scripts/pages/about.ts 不再加载
 
-- **src/ui/shell/scripts/pages/about.ts**
-  - github 链接 wangyongpeng90 → paker5200
+- **src/ui/shell/scripts/pages/token-react.tsx**
+  - 上下文策略三选一（见上"功能相关改动"），上游每次重做 Token 页都要重新迁移
+
+- **src/app/ipc/session.ts**（v0.8.18 补充）
+  - 二进制文件冲突（编码/行尾差异），合并时**不要依赖 git 自动合并**。
+  - 正确做法：`git checkout master -- src/app/ipc/session.ts` 取上游版本，
+    再手工加回 3 个 handler（export-session-log / new-conversation-with-progress / ensure-progress-folder）
+    和顶部 import（project-progress.js）+ `const { ipcMain, dialog, app } = require('electron')`。
+
+- **src/overlay/events.ts**（v0.8.18 补充）
+  - 上游 v0.8.18 已把 onTaskIdle 简化为 `hooks.onTaskIdle?.(() => checkAutoCompact())`。
+  - 合并后必须把定制逻辑补回：`resolveTaskIdleWaiters()` → willNewChat 分支判断 →
+    `maybeInjectProgressGuide()` / `checkAutoCompact()`。
+  - 这一段 git 不会报冲突（上游删改后自动合并），必须人工核查。
 
 ### ⚫ 生成物（不要手动合并！）
 
@@ -209,17 +234,36 @@
     git merge master
     #   出现冲突时：对照本文件第三节，逐文件处理
 
-    # 4. 【关键】源码合并完后，重新生成 shell.html
-    node scripts/build-shell.mjs
+    # 4. 【v0.8.18 新增】安装依赖
+    #    上游引入 react/react-dom，package-lock 换新后必须装，否则 build-shell 会报
+    #    "Could not resolve react" 而失败（33 个错误）。
+    npm install
 
-    # 5. 验证
+    # 5. 【关键】源码合并完后，重新生成 shell.html
+    node scripts/build-shell.mjs
+    #    产物约 1.7MB（React 化后远大于旧的 200KB，正常）
+    #    若报 Could not resolve "react" → 回到第 4 步
+
+    # 6. 验证
     npm run typecheck
     npx vitest run
+    #    v0.8.18 基线：102 个测试文件 / 964 个测试全过
 
-    # 6. 提交并推送
+    # 7. 提交并推送
     git add -A
     git commit -m "merge: 合并上游 X.X.X 到 flash-dev"
     git push origin flash-dev
+
+### ⚠️ v0.8.18 合并特别提醒（下次合并务必先看）
+
+1. **Token 页已 React 化**：`token.html` / `token.ts` 废弃，定制迁到 `token-react.tsx`。
+   `main.ts` 用 `registerPage('token', TokenPage)` 挂载，只认 React 版。
+2. **about 页已 React 化**：`about-react.tsx` 里的 GitHub 链接会被上游改回 wangyongpeng90，需改回 paker5200。
+3. **session.ts 是二进制冲突**：git 无法自动合并（报 "Cannot merge binary files"）。
+   必须 `git checkout master -- src/app/ipc/session.ts` 取上游版，再手工加 3 个 handler。
+4. **events.ts 的 onTaskIdle 会被静默覆盖**：上游删成一行 `hooks.onTaskIdle?.(() => checkAutoCompact())`，
+   git 不报冲突，必须人工核对并补回 resolveTaskIdleWaiters / willNewChat 分支 / maybeInjectProgressGuide。
+5. **新增依赖**：react / react-dom / @types/react / @types/react-dom，合并后先 `npm install`。
 
 ---
 
@@ -227,10 +271,10 @@
 
 遇到冲突时，按下面的优先级判断：
 
-1. **功能保留**：你的"自动开启新对话"和"项目进度"相关改动（events.ts、project-progress.ts、session.ts 的 handler、token 页）一律保留。
+1. **功能保留**：你的"自动开启新对话"和"项目进度"相关改动（events.ts、project-progress.ts、session.ts 的 handler、token-react.tsx 的三选一）一律保留。
 2. **改名保留**：Flash 的名字、appId、SESSION_DIR、publish 指向 paker5200，一律保留。
 3. **上游新功能**：上游新增的功能代码，尽量接受。
-4. **version**：取上游的新版本号，不要卡在 0.8.7。
+4. **version**：取上游的新版本号，不要卡在旧版（当前应为 0.8.18）。
 5. **shell.html**：不对抗，合并后重新生成。
 
 不确定时，把冲突片段和本文件一起给 AI，让 AI 判断"这段是你的定制还是上游的更新"。
