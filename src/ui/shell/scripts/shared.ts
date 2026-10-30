@@ -7,22 +7,9 @@ import type { ShellAPI } from './shell-api.js';
 export const api: ShellAPI = (window as any).shellAPI || {};
 
 // ===== 通用弹框（替代原生 alert/confirm）=====
-/** 弹窗期间隐藏 AI 视图（原生 WebContentsView 永远在网页之上），关闭后恢复。
- *  用引用计数，支持嵌套弹窗。 */
-let _aiHiddenCount = 0;
-function aiViewEnter(): void {
-  _aiHiddenCount++;
-  if (_aiHiddenCount === 1) {
-    try { if ((api as any).setAiViewVisible) (api as any).setAiViewVisible(false).catch(() => {}); } catch (_) {}
-  }
-}
-function aiViewLeave(): void {
-  if (_aiHiddenCount <= 0) return;
-  _aiHiddenCount--;
-  if (_aiHiddenCount === 0) {
-    try { if ((api as any).setAiViewVisible) (api as any).setAiViewVisible(true).catch(() => {}); } catch (_) {}
-  }
-}
+import { hideAiView, showAiView } from './ai-view-manager.js';
+function aiViewEnter(): void { hideAiView(); }
+function aiViewLeave(): void { showAiView(); }
 
 export function ckDialog(opts: { title?: string; message?: string; confirm?: boolean }): Promise<boolean> {
   return new Promise((resolve) => {

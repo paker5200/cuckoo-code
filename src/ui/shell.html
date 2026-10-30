@@ -27548,29 +27548,32 @@ body {
     }
   });
 
-  // src/ui/shell/scripts/shared.ts
-  var api = window.shellAPI || {};
-  var _aiHiddenCount = 0;
-  function aiViewEnter() {
-    _aiHiddenCount++;
-    if (_aiHiddenCount === 1) {
-      try {
-        if (api.setAiViewVisible) api.setAiViewVisible(false).catch(() => {
-        });
-      } catch (_) {
-      }
+  // src/ui/shell/scripts/ai-view-manager.ts
+  var hideCount = 0;
+  function hideAiView() {
+    hideCount++;
+    if (hideCount === 1) {
+      const anyApi = api;
+      if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(false).catch(() => {
+      });
     }
   }
-  function aiViewLeave() {
-    if (_aiHiddenCount <= 0) return;
-    _aiHiddenCount--;
-    if (_aiHiddenCount === 0) {
-      try {
-        if (api.setAiViewVisible) api.setAiViewVisible(true).catch(() => {
-        });
-      } catch (_) {
-      }
+  function showAiView() {
+    hideCount = Math.max(0, hideCount - 1);
+    if (hideCount === 0) {
+      const anyApi = api;
+      if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {
+      });
     }
+  }
+
+  // src/ui/shell/scripts/shared.ts
+  var api = window.shellAPI || {};
+  function aiViewEnter() {
+    hideAiView();
+  }
+  function aiViewLeave() {
+    showAiView();
   }
   function ckDialog(opts) {
     return new Promise((resolve) => {
@@ -30796,14 +30799,9 @@ body {
   var import_react5 = __toESM(require_react(), 1);
   function useHideAiView() {
     (0, import_react5.useEffect)(() => {
-      const anyApi = api;
-      if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(false).catch(() => {
-      });
+      hideAiView();
       return () => {
-        if (!window.__ckSettingsForcedHide && anyApi.setAiViewVisible) {
-          anyApi.setAiViewVisible(true).catch(() => {
-          });
-        }
+        showAiView();
       };
     }, []);
   }
@@ -31520,19 +31518,11 @@ body {
     const isMainSlotActive = !!(mainSlotItem && mainSlotItem.Component);
     const Page = (0, import_react9.useMemo)(() => PAGES[activeTab], [activeTab]);
     (0, import_react9.useEffect)(() => {
-      const anyApi = api;
-      if (settingsOpen) {
-        window.__ckSettingsForcedHide = true;
-        if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(false).catch(() => {
-        });
-      } else {
-        window.__ckSettingsForcedHide = false;
-        if (!isMainSlotActive && anyApi.setAiViewVisible) {
-          anyApi.setAiViewVisible(true).catch(() => {
-          });
-        }
+      if (isMainSlotActive) {
+        hideAiView();
+        return () => showAiView();
       }
-    }, [isMainSlotActive, settingsOpen]);
+    }, [isMainSlotActive]);
     const viewportEl = (0, import_react9.useMemo)(() => document.querySelector(".viewport"), []);
     const closeMainPanel = () => {
       setMainPanelId(null);

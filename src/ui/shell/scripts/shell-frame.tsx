@@ -11,6 +11,7 @@ import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import { api } from './shared.js';
 import { SettingsModal } from './pages/settings-react.js';
+import { hideAiView, showAiView } from './ai-view-manager.js';
 import { subscribeSlots, getSlotItems, reloadDshClients } from './dsh-client-runtime.js';
 
 const SIDEBAR_COLLAPSED = 46;
@@ -193,20 +194,13 @@ function ShellFrame() {
   const isMainSlotActive = !!(mainSlotItem && mainSlotItem.Component);
   // 常规页面（侧栏里渲染）
   const Page = useMemo(() => PAGES[activeTab], [activeTab]);
-  // 标记当前是否由设置面板强制隐藏 AI 视图
+  // DSH main 插槽激活时隐藏 AI 视图
   useEffect(() => {
-    const anyApi = api as any;
-    if (settingsOpen) {
-      (window as any).__ckSettingsForcedHide = true;
-      if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(false).catch(() => {});
-    } else {
-      (window as any).__ckSettingsForcedHide = false;
-      // 只有没有其他原因（如 DSH 主面板）需要隐藏时，才恢复
-      if (!isMainSlotActive && anyApi.setAiViewVisible) {
-        anyApi.setAiViewVisible(true).catch(() => {});
-      }
+    if (isMainSlotActive) {
+      hideAiView();
+      return () => showAiView();
     }
-  }, [isMainSlotActive, settingsOpen]);
+  }, [isMainSlotActive]);
   // DSH main 插槽内容 → Portal 到 .viewport（和 AI 网页同位置）
   const viewportEl = useMemo(() => document.querySelector('.viewport'), []);
   // 关闭 DSH 主面板（回 AI view）
