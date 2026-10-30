@@ -194,13 +194,14 @@ function ShellFrame() {
   const isMainSlotActive = !!(mainSlotItem && mainSlotItem.Component);
   // 常规页面（侧栏里渲染）
   const Page = useMemo(() => PAGES[activeTab], [activeTab]);
-  // DSH main 插槽激活时隐藏 AI 视图
+  // 当设置模态打开，或 DSH 主插槽激活时，隐藏原生 AI 视图
   useEffect(() => {
-    if (isMainSlotActive) {
-      hideAiView();
-      return () => showAiView();
+    const anyApi = api as any;
+    const shouldHide = isMainSlotActive || settingsOpen;
+    if (anyApi.setAiViewVisible) {
+      anyApi.setAiViewVisible(!shouldHide).catch(() => {});
     }
-  }, [isMainSlotActive]);
+  }, [isMainSlotActive, settingsOpen]);
   // DSH main 插槽内容 → Portal 到 .viewport（和 AI 网页同位置）
   const viewportEl = useMemo(() => document.querySelector('.viewport'), []);
   // 关闭 DSH 主面板（回 AI view）

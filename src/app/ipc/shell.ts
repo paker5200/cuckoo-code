@@ -402,23 +402,41 @@ function registerShellIpc(): void {
     return { success: true };
   });
 
-  // 隐藏/显示 AI 视图（+ harness 视图）—— 壳页面弹窗需要"盖过 AI 区域"时用（AI 是原生 WebContentsView，永远在网页之上）
+  // 隐藏/显示 AI 视图——壳页面弹窗需要"盖过 AI 区域"时用
   ipcMain.handle('shell-set-ai-view-visible', async (event: any, { visible }: any) => {
-    const ctx = windowState.getContextByWebContents(event.sender);
-    if (!ctx || !ctx.win || ctx.win.isDestroyed()) return { success: false, error: '找不到窗口上下文' };
-    const win = ctx.win;
-    const view = ctx.view;
-    let errorMsg = '';
-    try { 
-      if (view && !view.webContents.isDestroyed()) view.setVisible(!!visible); 
-    } catch (err: any) { 
-      errorMsg = 'AI视图设置失败: ' + err.message;
+    let ctx = windowState.getContextByWebContents(event.sender);
+    
+    if (!ctx) {
+      // 兜底 1：通过 webContents 找 BrowserWindow
+      const { BrowserWindow } = require('electron');
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (win) {
+        const contexts = (windowState as any).getAllContexts ? (windowState as any).getAllContexts() : [];
+        for (const c of contexts) {
+          if (c.win === win) { ctx = c; break; }
+        }
+      }
     }
-    try {
-      const hv = win.__ckHarnessView;
-      if (hv && !hv.webContents.isDestroyed()) hv.setVisible(!!visible);
-    } catch (_) { /* ignore */ }
-    return { success: true, error: errorMsg };
+    
+    // 兜底 2：直接取主窗口上下文（因为壳页面通常是主窗口）
+    if (!ctx) ctx = windowState.getMainContext();
+    if (!ctx) return { success: false, error: '找不到窗口上下文' };
+
+    // 优先调用原作者在 entry.ts 中定义的 __ckSetAiViewVisible
+    if (typeof (ctx.win as any).__ckSetAiViewVisible === 'function') {
+      (ctx.win as any).__ckSetAiViewVisible(visible);
+    } else {
+      // 兜底逻辑
+      if (!visible) {
+        try { if (ctx.view && !ctx.view.webContents.isDestroyed()) { ctx.view.setVisible(false); } } catch (_) {}
+        try { if ((ctx as any).harnessView && !(ctx as any).harnessView.webContents.isDestroyed()) { (ctx as any).harnessView.setVisible(false); } } catch (_) {}
+      } else {
+        try { if (ctx.view && !ctx.view.webContents.isDestroyed()) ctx.view.setVisible(true); } catch (_) {}
+        try { if ((ctx as any).harnessView && !(ctx as any).harnessView.webContents.isDestroyed()) (ctx as any).harnessView.setVisible(true); } catch (_) {}
+        try { if (typeof (ctx.win as any).__ckLayout === 'function') (ctx.win as any).__ckLayout(); } catch (_) {}
+      }
+    }
+    return { success: true };
   });
 }
 

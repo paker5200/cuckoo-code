@@ -31291,12 +31291,20 @@ body {
     }
     return (0, import_react8.createElement)(
       "div",
-      { className: "ck-settings-mask", onClick: (e) => {
-        if (e.target === e.currentTarget) onClose();
-      } },
+      {
+        className: "ck-settings-mask",
+        style: { position: "fixed", inset: 0, zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" },
+        onClick: (e) => {
+          if (e.target === e.currentTarget) onClose();
+        }
+      },
       (0, import_react8.createElement)(
         "div",
-        { className: "ck-settings-dialog", onClick: (e) => e.stopPropagation() },
+        {
+          className: "ck-settings-dialog",
+          style: { width: "1000px", maxWidth: "92vw", height: "720px", maxHeight: "88vh", display: "flex", flexDirection: "column", background: "var(--ck-bg, #fff)", borderRadius: "12px", boxShadow: "0 12px 48px rgba(0,0,0,0.35)", border: "1px solid var(--ck-border, #ccc)", overflow: "hidden" },
+          onClick: (e) => e.stopPropagation()
+        },
         // 顶栏（只有关闭按钮）
         (0, import_react8.createElement)(
           "div",
@@ -31518,11 +31526,13 @@ body {
     const isMainSlotActive = !!(mainSlotItem && mainSlotItem.Component);
     const Page = (0, import_react9.useMemo)(() => PAGES[activeTab], [activeTab]);
     (0, import_react9.useEffect)(() => {
-      if (isMainSlotActive) {
-        hideAiView();
-        return () => showAiView();
+      const anyApi = api;
+      const shouldHide = isMainSlotActive || settingsOpen;
+      if (anyApi.setAiViewVisible) {
+        anyApi.setAiViewVisible(!shouldHide).catch(() => {
+        });
       }
-    }, [isMainSlotActive]);
+    }, [isMainSlotActive, settingsOpen]);
     const viewportEl = (0, import_react9.useMemo)(() => document.querySelector(".viewport"), []);
     const closeMainPanel = () => {
       setMainPanelId(null);

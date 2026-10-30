@@ -324,8 +324,16 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   }
 
   // 外层遮罩（点遮罩关闭）+ 内层居中对话框
-  return createElement('div', { className: 'ck-settings-mask', onClick: (e: any) => { if (e.target === e.currentTarget) onClose(); } },
-    createElement('div', { className: 'ck-settings-dialog', onClick: (e: any) => e.stopPropagation() },
+  return createElement('div', { 
+    className: 'ck-settings-mask', 
+    style: { position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' },
+    onClick: (e: any) => { if (e.target === e.currentTarget) onClose(); } 
+  },
+    createElement('div', { 
+      className: 'ck-settings-dialog', 
+      style: { width: '1000px', maxWidth: '92vw', height: '720px', maxHeight: '88vh', display: 'flex', flexDirection: 'column', background: 'var(--ck-bg, #fff)', borderRadius: '12px', boxShadow: '0 12px 48px rgba(0,0,0,0.35)', border: '1px solid var(--ck-border, #ccc)', overflow: 'hidden' },
+      onClick: (e: any) => e.stopPropagation() 
+    },
       // 顶栏（只有关闭按钮）
       createElement('div', { className: 'ck-settings-head' },
         createElement('div', { style: { flex: 1 } }),
