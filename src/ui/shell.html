@@ -30800,8 +30800,10 @@ body {
       if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(false).catch(() => {
       });
       return () => {
-        if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {
-        });
+        if (!window.__ckSettingsForcedHide && anyApi.setAiViewVisible) {
+          anyApi.setAiViewVisible(true).catch(() => {
+          });
+        }
       };
     }, []);
   }
@@ -31519,13 +31521,16 @@ body {
     const Page = (0, import_react9.useMemo)(() => PAGES[activeTab], [activeTab]);
     (0, import_react9.useEffect)(() => {
       const anyApi = api;
-      const shouldHide = isMainSlotActive || settingsOpen;
-      if (shouldHide) {
+      if (settingsOpen) {
+        window.__ckSettingsForcedHide = true;
         if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(false).catch(() => {
         });
       } else {
-        if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {
-        });
+        window.__ckSettingsForcedHide = false;
+        if (!isMainSlotActive && anyApi.setAiViewVisible) {
+          anyApi.setAiViewVisible(true).catch(() => {
+          });
+        }
       }
     }, [isMainSlotActive, settingsOpen]);
     const viewportEl = (0, import_react9.useMemo)(() => document.querySelector(".viewport"), []);

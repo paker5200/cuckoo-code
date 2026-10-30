@@ -193,16 +193,18 @@ function ShellFrame() {
   const isMainSlotActive = !!(mainSlotItem && mainSlotItem.Component);
   // 常规页面（侧栏里渲染）
   const Page = useMemo(() => PAGES[activeTab], [activeTab]);
-  // DSH main 插槽激活 或 设置模态打开时：隐藏 AI view
-  // （AI 页面是原生 WebContentsView，永远盖在 DOM 之上，CSS z-index 无效；
-  //   设置模态是全屏遮罩，必须把 AI 视图藏起来，否则右侧内容会被聊天窗覆盖。）
+  // 标记当前是否由设置面板强制隐藏 AI 视图
   useEffect(() => {
     const anyApi = api as any;
-    const shouldHide = isMainSlotActive || settingsOpen;
-    if (shouldHide) {
+    if (settingsOpen) {
+      (window as any).__ckSettingsForcedHide = true;
       if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(false).catch(() => {});
     } else {
-      if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {});
+      (window as any).__ckSettingsForcedHide = false;
+      // 只有没有其他原因（如 DSH 主面板）需要隐藏时，才恢复
+      if (!isMainSlotActive && anyApi.setAiViewVisible) {
+        anyApi.setAiViewVisible(true).catch(() => {});
+      }
     }
   }, [isMainSlotActive, settingsOpen]);
   // DSH main 插槽内容 → Portal 到 .viewport（和 AI 网页同位置）

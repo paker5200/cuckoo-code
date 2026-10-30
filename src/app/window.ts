@@ -46,9 +46,20 @@ function getWindowContext(windowId: number): WindowContext | null {
 
 function getContextByWebContents(webContents: any): WindowContext | null {
   for (const ctx of windows.values()) {
+    // 1. 常规 BrowserWindow
     if (ctx.win.webContents === webContents) return ctx;
+    // 2. AI 视图
     if (ctx.view && ctx.view.webContents === webContents) return ctx;
+    // 3. 纯净模式 harness 视图
     if ((ctx as any).harnessView && (ctx as any).harnessView.webContents === webContents) return ctx;
+    // 4. v0.8.18 壳页面重构：如果是 BaseWindow 的 WebContentsView 包装
+    try {
+      if (ctx.win && (ctx.win as any).contentView) {
+        for (const child of (ctx.win as any).contentView.children) {
+          if (child.webContents === webContents) return ctx;
+        }
+      }
+    } catch (_) { /* ignore */ }
   }
   return null;
 }
