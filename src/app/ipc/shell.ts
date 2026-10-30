@@ -422,22 +422,28 @@ function registerShellIpc(): void {
     if (!ctx) ctx = windowState.getMainContext();
     if (!ctx) return { success: false, error: '找不到窗口上下文' };
 
-    // 全局遍历所有窗口上下文，强制设置显隐（兼容多窗口/子代理窗口）
-    const contexts = (windowState as any).getAllContexts ? (windowState as any).getAllContexts() : [];
-    if (contexts.length === 0) {
-      // 保底：至少处理当前反查到的 ctx
-      contexts.push(ctx);
-    }
-    for (const c of contexts) {
-      if (!c || !c.win || c.win.isDestroyed()) continue;
-      c.win.__ckAiViewVisible = visible;
-      try { if (c.view && !c.view.webContents.isDestroyed()) c.view.setVisible(visible); } catch (_) {}
-      try { if (c.harnessView && !c.harnessView.webContents.isDestroyed()) c.harnessView.setVisible(visible); } catch (_) {}
-      if (!visible) {
-        try { if (c.view && !c.view.webContents.isDestroyed()) c.view.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
-        try { if (c.harnessView && !c.harnessView.webContents.isDestroyed()) c.harnessView.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
+    // 暴力遍历当前所有窗口，把除了 sender 之外的所有 WebContentsView 全部隐藏
+    const { BrowserWindow } = require('electron');
+    const windows = BrowserWindow.getAllWindows();
+    for (const win of windows) {
+      if (win.isDestroyed()) continue;
+      try {
+        if (win.contentView && win.contentView.children) {
+          for (const child of win.contentView.children) {
+            if (child.webContents === event.sender) continue; // 保护壳页面自己
+            try { child.setVisible(visible); } catch (_) {}
+            if (!visible) {
+              try { child.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
+            }
+          }
+        }
+      } catch (_) {}
+      
+      // 尝试同步原版标记并触发重排，防恢复时位置出错
+      if (typeof win.__ckLayout === 'function') {
+        win.__ckAiViewVisible = visible;
+        try { win.__ckLayout(); } catch (_) {}
       }
-      try { if (typeof c.win.__ckLayout === 'function') c.win.__ckLayout(); } catch (_) {}
     }
     return { success: true };
   });
