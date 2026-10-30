@@ -405,33 +405,40 @@ function registerShellIpc(): void {
   // 隐藏/显示 AI 视图——壳页面弹窗需要"盖过 AI 区域"时用
   ipcMain.handle('shell-set-ai-view-visible', async (event: any, { visible }: any) => {
     try {
-      const { BrowserWindow } = require('electron');
-      const windows = BrowserWindow.getAllWindows();
+      const contexts = (windowState as any).getAllContexts ? (windowState as any).getAllContexts() : [];
       
-      for (const win of windows) {
-        if (!win || win.isDestroyed()) continue;
+      for (const ctx of contexts) {
+        if (!ctx.win || ctx.win.isDestroyed()) continue;
+        const win = ctx.win;
         
         win.__ckAiViewVisible = visible;
         
-        if (win.contentView) {
-          const children = [...(win.contentView.children || [])];
-          for (const child of children) {
-            // 保护壳页面
-            if (child.webContents === event.sender) continue;
-            
-            if (!visible) {
-              // 隐藏时：直接从视图树拔掉，绝对物理隔绝
-              try { win.contentView.removeChildView(child); } catch (_) {}
-            } else {
-              // 恢复时：重新插回视图树（避免重复插入）
-              if (!win.contentView.children.includes(child)) {
-                try { win.contentView.addChildView(child); } catch (_) {}
-              }
-            }
-          }
+        // 强制隐藏/显示并操作视图树
+        const view = ctx.view;
+        const harnessView = ctx.harnessView;
+        
+        if (view) {
+          try { view.setVisible(visible); } catch (_) {}
+          if (!visible) try { view.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
+        }
+        if (harnessView) {
+          try { harnessView.setVisible(visible); } catch (_) {}
+          if (!visible) try { harnessView.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
         }
         
-        // 触发重排
+        try {
+          if (win.contentView) {
+            if (!visible) {
+              if (view) { try { win.contentView.removeChildView(view); } catch (_) {} }
+              if (harnessView) { try { win.contentView.removeChildView(harnessView); } catch (_) {} }
+            } else {
+              if (view) { try { win.contentView.addChildView(view); } catch (_) {} }
+              if (harnessView) { try { win.contentView.addChildView(harnessView); } catch (_) {} }
+            }
+          }
+        } catch (_) {}
+        
+        // 触发重排以更新尺寸
         if (typeof win.__ckLayout === 'function') {
           try { win.__ckLayout(); } catch (_) {}
         }
