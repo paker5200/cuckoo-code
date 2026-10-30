@@ -4,7 +4,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>Cuckoo</title>
+<title>Cuckoo Code Flash</title>
 <script src="vendor/monaco/vs/loader.js"></script>
 <style>
 /* ===== 全局滚动条（统一规范：4px 细条、透明轨道、圆角滑块）=====
@@ -31519,14 +31519,15 @@ body {
     const Page = (0, import_react9.useMemo)(() => PAGES[activeTab], [activeTab]);
     (0, import_react9.useEffect)(() => {
       const anyApi = api;
-      if (isMainSlotActive) {
+      const shouldHide = isMainSlotActive || settingsOpen;
+      if (shouldHide) {
         if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(false).catch(() => {
         });
       } else {
         if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {
         });
       }
-    }, [isMainSlotActive]);
+    }, [isMainSlotActive, settingsOpen]);
     const viewportEl = (0, import_react9.useMemo)(() => document.querySelector(".viewport"), []);
     const closeMainPanel = () => {
       setMainPanelId(null);
