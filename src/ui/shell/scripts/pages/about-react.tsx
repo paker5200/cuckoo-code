@@ -5,15 +5,11 @@ import { DonationBlock } from './donation-block.js';
 
 export function AboutPage() {
   const [version, setVersion] = useState('—');
-  const [qqUrl, setQqUrl] = useState('');
 
   useEffect(() => {
     const anyApi = api as any;
     if (anyApi.getAppInfo) {
       anyApi.getAppInfo().then((r: any) => { if (r && r.success) setVersion(r.version || '—'); }).catch(() => {});
-    }
-    if (anyApi.getAssetUrl) {
-      anyApi.getAssetUrl('assets/qq-group.jpg').then((r: any) => { if (r && r.success) setQqUrl(r.url); }).catch(() => {});
     }
   }, []);
 
@@ -35,8 +31,8 @@ export function AboutPage() {
       createElement('a', { className: 'ck-about-link', onClick: openGithub }, 'github.com/paker5200/cuckoo-code'),
     ),
     createElement('div', { className: 'ck-about-group' },
-      createElement('div', { className: 'ck-about-group-title' }, 'QQ 群：1104042537'),
-      qqUrl ? createElement('img', { className: 'ck-about-qr', src: qqUrl, alt: 'QQ 群' }) : null,
+      createElement('div', { className: 'ck-about-group-title' }, '交流群'),
+      createElement('p', { className: 'ck-about-tip' }, '加入 Cuckoo Code 用户交流群，与其他用户交流使用经验'),
     ),
   );
 }

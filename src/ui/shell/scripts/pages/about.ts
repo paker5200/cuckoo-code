@@ -1,5 +1,7 @@
 /**
- * 关于页：版本号、检查更新、开源地址、QQ 群。
+ * 关于页：版本号、检查更新、开源地址。
+ * （v0.8.18 起 about 页已 React 化，实际渲染由 about-react.tsx 接管；
+ *   本文件保留仅为兼容旧骨架，不再加载群二维码。）
  */
 import { api, ckAlert } from '../shared.js';
 
@@ -9,13 +11,6 @@ export async function loadAbout(): Promise<void> {
       const r = await api.getAppInfo();
       const verEl = document.getElementById('about-version');
       if (r && r.success && verEl) verEl.textContent = r.version || '—';
-    } catch (_) { /* ignore */ }
-  }
-  if (api.getAssetUrl) {
-    try {
-      const ru = await api.getAssetUrl('assets/qq-group.jpg');
-      const img = document.getElementById('about-qq') as any;
-      if (ru && ru.success && img) img.src = ru.url;
     } catch (_) { /* ignore */ }
   }
 }
