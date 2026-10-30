@@ -31513,13 +31513,28 @@ body {
     const Page = (0, import_react8.useMemo)(() => PAGES[activeTab], [activeTab]);
     (0, import_react8.useEffect)(() => {
       const anyApi = api;
-      const shouldHide = isMainSlotActive || settingsOpen;
-      window.__ckModalOpen = shouldHide;
-      if (anyApi.setAiViewVisible) {
-        anyApi.setAiViewVisible(!shouldHide).catch(() => {
+      if (isMainSlotActive) {
+        if (anyApi.hideNativeViews) anyApi.hideNativeViews().catch(() => {
+        });
+      } else if (!settingsOpen) {
+        if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {
         });
       }
     }, [isMainSlotActive, settingsOpen]);
+    const onSettingsClick = () => {
+      const sidebar = document.getElementById("ck-sidebar");
+      if (sidebar && sidebar.classList.contains("ck-collapsed")) expandSidebar();
+      const anyApi = api;
+      if (anyApi.hideNativeViews) anyApi.hideNativeViews().catch(() => {
+      });
+      setSettingsOpen(true);
+    };
+    const closeSettings = () => {
+      setSettingsOpen(false);
+      const anyApi = api;
+      if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {
+      });
+    };
     const viewportEl = (0, import_react8.useMemo)(() => document.querySelector(".viewport"), []);
     const closeMainPanel = () => {
       setMainPanelId(null);
@@ -31582,11 +31597,6 @@ body {
       }
       setActiveTab(id);
     };
-    const onSettingsClick = () => {
-      const sidebar = document.getElementById("ck-sidebar");
-      if (sidebar && sidebar.classList.contains("ck-collapsed")) expandSidebar();
-      setSettingsOpen(true);
-    };
     return (0, import_react8.createElement)(
       "div",
       { style: { display: "contents" } },
@@ -31621,7 +31631,7 @@ body {
       mainOverlay,
       // 设置模态（Portal 挂到 body，全窗遮罩 + 居中对话框）
       settingsOpen ? (0, import_react_dom2.createPortal)(
-        (0, import_react8.createElement)(SettingsModal, { onClose: () => setSettingsOpen(false) }),
+        (0, import_react8.createElement)(SettingsModal, { onClose: closeSettings }),
         document.body
       ) : null
     );

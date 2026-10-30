@@ -194,16 +194,29 @@ function ShellFrame() {
   const isMainSlotActive = !!(mainSlotItem && mainSlotItem.Component);
   // 常规页面（侧栏里渲染）
   const Page = useMemo(() => PAGES[activeTab], [activeTab]);
-  // 当设置模态打开，或 DSH 主插槽激活时，隐藏原生 AI 视图
+  // DSH main 插槽激活时：隐藏 AI view
   useEffect(() => {
     const anyApi = api as any;
-    const shouldHide = isMainSlotActive || settingsOpen;
-    // 记录最高优先级遮挡状态，防止其他弹窗退出时把 AI 视图放出来
-    (window as any).__ckModalOpen = shouldHide;
-    if (anyApi.setAiViewVisible) {
-      anyApi.setAiViewVisible(!shouldHide).catch(() => {});
+    if (isMainSlotActive) {
+      if (anyApi.hideNativeViews) anyApi.hideNativeViews().catch(() => {});
+    } else if (!settingsOpen) {
+      if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {});
     }
   }, [isMainSlotActive, settingsOpen]);
+
+  const onSettingsClick = () => {
+    const sidebar = document.getElementById('ck-sidebar');
+    if (sidebar && sidebar.classList.contains('ck-collapsed')) expandSidebar();
+    const anyApi = api as any;
+    if (anyApi.hideNativeViews) anyApi.hideNativeViews().catch(() => {});
+    setSettingsOpen(true);
+  };
+
+  const closeSettings = () => {
+    setSettingsOpen(false);
+    const anyApi = api as any;
+    if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {});
+  };
   // DSH main 插槽内容 → Portal 到 .viewport（和 AI 网页同位置）
   const viewportEl = useMemo(() => document.querySelector('.viewport'), []);
   // 关闭 DSH 主面板（回 AI view）
@@ -247,11 +260,7 @@ function ShellFrame() {
     setActiveTab(id);
   };
   // 点"设置"→ 打开全屏模态（若侧栏收起则先展开）
-  const onSettingsClick = () => {
-    const sidebar = document.getElementById('ck-sidebar');
-    if (sidebar && sidebar.classList.contains('ck-collapsed')) expandSidebar();
-    setSettingsOpen(true);
-  };
+
   return createElement('div', { style: { display: 'contents' } },
     createElement('div', { className: 'ck-activitybar' },
       TABS.map((t) => createElement(AbButton, { key: t.id, tab: t, active: activeTab === t.id, onClick: () => onTabClick(t.id) })),
@@ -274,7 +283,7 @@ function ShellFrame() {
     mainOverlay,
     // 设置模态（Portal 挂到 body，全窗遮罩 + 居中对话框）
     settingsOpen ? createPortal(
-      createElement(SettingsModal, { onClose: () => setSettingsOpen(false) }),
+      createElement(SettingsModal, { onClose: closeSettings }),
       document.body,
     ) : null,
   );

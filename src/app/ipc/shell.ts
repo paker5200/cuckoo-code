@@ -402,6 +402,46 @@ function registerShellIpc(): void {
     return { success: true };
   });
 
+  // 强制隐藏原生视图（给设置面板专用，不受其他弹窗干扰）
+  ipcMain.handle('shell-hide-native-views', async (event: any) => {
+    try {
+      const { BrowserWindow } = require('electron');
+      const windows = BrowserWindow.getAllWindows();
+      for (const win of windows) {
+        if (!win || win.isDestroyed()) continue;
+        win.__ckAiViewVisible = false;
+        
+        try {
+          const contexts = (windowState as any).getAllContexts ? (windowState as any).getAllContexts() : [];
+          for (const ctx of contexts) {
+            if (ctx.view && !ctx.view.webContents.isDestroyed()) {
+              ctx.view.setVisible(false);
+              ctx.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+            }
+            if (ctx.harnessView && !ctx.harnessView.webContents.isDestroyed()) {
+              ctx.harnessView.setVisible(false);
+              ctx.harnessView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+            }
+          }
+          if (win.contentView && win.contentView.children) {
+            for (const child of win.contentView.children) {
+              if (child.webContents === event.sender) continue;
+              try { child.setVisible(false); } catch (_) {}
+              try { child.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
+            }
+          }
+        } catch (_) {}
+        
+        if (typeof win.__ckLayout === 'function') {
+          try { win.__ckLayout(); } catch (_) {}
+        }
+      }
+    } catch (err: any) {
+      console.error('[Cuckoo IPC] 强制隐藏原生视图失败:', err.message);
+    }
+    return { success: true };
+  });
+
   // 隐藏/显示 AI 视图——壳页面弹窗需要"盖过 AI 区域"时用
   ipcMain.handle('shell-set-ai-view-visible', async (event: any, { visible }: any) => {
     try {
