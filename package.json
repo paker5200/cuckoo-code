@@ -150,6 +150,7 @@
       "**/*",
       "!node_modules/.bin",
       "!dist",
+      "!dist_*",
       "!build",
       "!**/*.md",
       "!**/*.log",

@@ -31922,53 +31922,22 @@ body {
 
   // src/ui/shell/scripts/init-prompt.ts
   function bindInitPrompt() {
-    const modal = document.getElementById("init-prompt-modal");
-    const sendBtn = document.getElementById("init-prompt-send");
-    const cancelBtn = document.getElementById("init-prompt-cancel");
-    const dirInput = document.getElementById("init-prompt-dir");
-    const selectDirBtn = document.getElementById("init-prompt-select-dir");
-    const textarea = document.getElementById("init-prompt-textarea");
-    if (!modal || !sendBtn || !textarea) return;
-    if (modal.parentElement !== document.body) {
-      document.body.appendChild(modal);
-    }
-    const triggerShow = async (data) => {
-      const isVisible = !modal.classList.contains("cuckoo-hidden");
-      if (isVisible && (!data || !data.projectDir)) {
-        return;
-      }
-      if (!isVisible) {
-        console.log("[Cuckoo Shell] \u663E\u793A\u521D\u59CB\u5316\u5F39\u7A97");
-        modal.classList.remove("cuckoo-hidden");
-        if (api.setAiViewVisible) {
-          try {
-            await api.setAiViewVisible(false);
-          } catch (_) {
-          }
-        }
-      }
-      if (data && data.projectDir) {
-        dirInput.value = data.projectDir;
-        textarea.focus();
-      } else if (!isVisible) {
-        dirInput.value = "";
-        textarea.value = "";
-      }
-    };
-    window.__ckShowInitModal = triggerShow;
-    if (api.onShowInitPrompt) {
-      api.onShowInitPrompt(triggerShow);
-    }
-    if (selectDirBtn) {
-      selectDirBtn.onclick = async () => {
+    document.addEventListener("click", async (e) => {
+      const target = e.target;
+      if (!target) return;
+      if (target.closest("#init-prompt-select-dir")) {
+        e.preventDefault();
+        const selectDirBtn = target.closest("#init-prompt-select-dir");
+        const dirInput = document.getElementById("init-prompt-dir");
+        const textarea = document.getElementById("init-prompt-textarea");
         if (!api.selectProjectDir) return;
         selectDirBtn.disabled = true;
         selectDirBtn.textContent = "\u9009\u62E9\u4E2D...";
         try {
           const res = await api.selectProjectDir();
           if (res && res.success && res.dir) {
-            dirInput.value = res.dir;
-            textarea.focus();
+            if (dirInput) dirInput.value = res.dir;
+            if (textarea) textarea.focus();
           } else if (res && !res.success) {
             alert(res.message || "\u672A\u9009\u62E9\u76EE\u5F55");
           }
@@ -31976,52 +31945,106 @@ body {
           selectDirBtn.disabled = false;
           selectDirBtn.textContent = "\u9009\u62E9\u76EE\u5F55";
         }
-      };
-    }
-    sendBtn.onclick = async () => {
-      const text = textarea.value.trim();
-      if (!dirInput.value) {
-        alert("\u8BF7\u5148\u9009\u62E9\u9879\u76EE\u76EE\u5F55");
         return;
       }
-      if (!text) return;
-      sendBtn.disabled = true;
-      sendBtn.textContent = "\u53D1\u9001\u4E2D...";
-      try {
-        if (!api.sendInitMessage) {
-          throw new Error("\u7F3A\u5C11\u5FC5\u8981\u7684 API");
+      if (target.closest("#init-prompt-send")) {
+        console.log("[Cuckoo Init] \u70B9\u51FB\u4E86\u53D1\u9001\u6309\u94AE\uFF01");
+        e.preventDefault();
+        const modal2 = document.getElementById("init-prompt-modal");
+        const sendBtn = target.closest("#init-prompt-send");
+        const dirInput = document.getElementById("init-prompt-dir");
+        const textarea = document.getElementById("init-prompt-textarea");
+        let text = textarea ? textarea.value.trim() : "";
+        if (!dirInput || !dirInput.value) {
+          alert("\u8BF7\u5148\u9009\u62E9\u9879\u76EE\u76EE\u5F55");
+          return;
         }
-        const res = await api.sendInitMessage(text, dirInput.value);
-        if (res && res.success) {
-          modal.classList.add("cuckoo-hidden");
-          if (api.setAiViewVisible) {
-            try {
-              api.setAiViewVisible(true);
-            } catch (_) {
+        if (!text) text = "\u8BF7\u5F00\u59CB\u5206\u6790\u8BE5\u9879\u76EE\u3002";
+        alert("\u5DF2\u83B7\u53D6\u5230\u5185\u5BB9\uFF0C\u51C6\u5907\u53D1\u9001\uFF01");
+        if (modal2) modal2.classList.add("cuckoo-hidden");
+        if (sendBtn) {
+          sendBtn.disabled = true;
+          sendBtn.textContent = "\u53D1\u9001\u4E2D...";
+        }
+        if (api.setAiViewVisible) {
+          try {
+            api.setAiViewVisible(true).catch(() => {
+            });
+          } catch (_) {
+          }
+        }
+        setTimeout(async () => {
+          try {
+            if (!api.sendInitMessage) {
+              throw new Error("\u7F3A\u5C11\u5FC5\u8981\u7684 API");
+            }
+            const res = await api.sendInitMessage(text, dirInput.value);
+            if (!res || !res.success) {
+              alert("\u53D1\u9001\u5931\u8D25: " + (res?.error || "\u672A\u77E5\u9519\u8BEF"));
+              if (modal2) modal2.classList.remove("cuckoo-hidden");
+            }
+          } catch (err) {
+            alert("\u53D1\u9001\u5F02\u5E38: " + err.message);
+            if (modal2) modal2.classList.remove("cuckoo-hidden");
+          } finally {
+            if (sendBtn) {
+              sendBtn.disabled = false;
+              sendBtn.textContent = "\u53D1\u9001";
             }
           }
-        } else {
-          alert("\u53D1\u9001\u5931\u8D25: " + (res?.error || "\u672A\u77E5\u9519\u8BEF"));
+        }, 500);
+        return;
+      }
+      if (target.closest("#init-prompt-cancel")) {
+        e.preventDefault();
+        const modal2 = document.getElementById("init-prompt-modal");
+        if (modal2) modal2.classList.add("cuckoo-hidden");
+        if (api.setAiViewVisible) {
+          try {
+            api.setAiViewVisible(true).catch(() => {
+            });
+          } catch (_) {
+          }
         }
-      } catch (e) {
-        alert("\u53D1\u9001\u5F02\u5E38: " + e.message);
-      } finally {
-        sendBtn.disabled = false;
-        sendBtn.textContent = "\u53D1\u9001";
+        if (api.cancelInitPrompt) {
+          api.cancelInitPrompt();
+        }
+        return;
+      }
+    });
+    const modal = document.getElementById("init-prompt-modal");
+    if (modal && modal.parentElement !== document.body) {
+      document.body.appendChild(modal);
+    }
+    const triggerShow = (data) => {
+      const m = document.getElementById("init-prompt-modal");
+      if (!m) return;
+      const dirInput = document.getElementById("init-prompt-dir");
+      const textarea = document.getElementById("init-prompt-textarea");
+      const isVisible = !m.classList.contains("cuckoo-hidden");
+      if (isVisible && (!data || !data.projectDir)) return;
+      if (!isVisible) {
+        m.classList.remove("cuckoo-hidden");
+        if (api.setAiViewVisible) {
+          try {
+            api.setAiViewVisible(false).catch(() => {
+            });
+          } catch (_) {
+          }
+        }
+      }
+      if (data && data.projectDir) {
+        if (dirInput) dirInput.value = data.projectDir;
+        if (textarea) textarea.focus();
+      } else if (!isVisible) {
+        if (dirInput) dirInput.value = "";
+        if (textarea) textarea.value = "";
       }
     };
-    cancelBtn.onclick = () => {
-      modal.classList.add("cuckoo-hidden");
-      if (api.setAiViewVisible) {
-        try {
-          api.setAiViewVisible(true);
-        } catch (_) {
-        }
-      }
-      if (api.cancelInitPrompt) {
-        api.cancelInitPrompt();
-      }
-    };
+    window.__ckShowInitModal = triggerShow;
+    if (api.onShowInitPrompt) {
+      api.onShowInitPrompt(triggerShow);
+    }
   }
 
   // src/ui/shell/scripts/pages/home-react.tsx

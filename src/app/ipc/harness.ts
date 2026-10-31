@@ -240,8 +240,24 @@ function registerHarnessIpc(): void {
       const hv = (ctx as any).harnessView;
       if (hv && !hv.webContents.isDestroyed()) hv.webContents.send('harness-event', { type: 'plan', todos: [] });
     } catch (_) { /* ignore */ }
-    
-    ctx.view.webContents.send('harness-user-message', { text });
+
+    // 【关键修复】主进程统一负责唤醒原生视图，恢复 DOM 尺寸
+    try {
+      const { BrowserWindow } = require('electron');
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (win && !win.isDestroyed() && typeof win.__ckSetAiViewVisible === 'function') {
+        win.__ckSetAiViewVisible(true);
+      }
+    } catch (_) {}
+
+    // 延迟 200ms 发送，确保 DOM 完全恢复并渲染出输入框
+    setTimeout(() => {
+      try {
+        if (!ctx.view.webContents.isDestroyed()) {
+          ctx.view.webContents.send('harness-user-message', { text });
+        }
+      } catch (_) {}
+    }, 200);
     return { success: true };
   });
 

@@ -4,66 +4,25 @@
 import { api } from './shared.js';
 
 export function bindInitPrompt() {
-  const modal = document.getElementById('init-prompt-modal');
-  const sendBtn = document.getElementById('init-prompt-send') as HTMLButtonElement;
-  const cancelBtn = document.getElementById('init-prompt-cancel') as HTMLButtonElement;
-  const dirInput = document.getElementById('init-prompt-dir') as HTMLInputElement;
-  const selectDirBtn = document.getElementById('init-prompt-select-dir') as HTMLButtonElement;
-  const textarea = document.getElementById('init-prompt-textarea') as HTMLTextAreaElement;
+  // 使用事件委托绑定到 document，防止 React 重渲染或移动 DOM 导致绑定失效
+  document.addEventListener('click', async (e: Event) => {
+    const target = e.target as HTMLElement;
+    if (!target) return;
 
-  if (!modal || !sendBtn || !textarea) return;
-
-  // 🔥 关键修复：把弹窗从侧边栏容器里挪出来，放到 body 下，防止被裁剪
-  if (modal.parentElement !== document.body) {
-    document.body.appendChild(modal);
-  }
-
-  // 将内部显示逻辑提取出来，支持接收预设目录
-  const triggerShow = async (data?: any) => {
-    const isVisible = !modal.classList.contains('cuckoo-hidden');
-    
-    // 如果弹窗已经打开了，且这次也没有带目录，就直接忽略
-    if (isVisible && (!data || !data.projectDir)) {
-      return;
-    }
-    
-    if (!isVisible) {
-      console.log('[Cuckoo Shell] 显示初始化弹窗');
-      modal.classList.remove('cuckoo-hidden');
-      // 隐藏 AI 视图，防止遮挡
-      if (api.setAiViewVisible) {
-        try { await api.setAiViewVisible(false); } catch (_) {}
-      }
-    }
-    
-    // 如果有传入的目录，强制覆盖填入
-    if (data && data.projectDir) {
-      dirInput.value = data.projectDir;
-      textarea.focus();
-    } else if (!isVisible) {
-      // 如果是全新打开，且没带目录，则清空
-      dirInput.value = '';
-      textarea.value = '';
-    }
-  };
-
-  // 暴露给 toolbar 等地方调用
-  (window as any).__ckShowInitModal = triggerShow;
-
-  if (api.onShowInitPrompt) {
-    api.onShowInitPrompt(triggerShow);
-  }
-
-  if (selectDirBtn) {
-    selectDirBtn.onclick = async () => {
+    // 处理选择目录
+    if (target.closest('#init-prompt-select-dir')) {
+      e.preventDefault();
+      const selectDirBtn = target.closest('#init-prompt-select-dir') as HTMLButtonElement;
+      const dirInput = document.getElementById('init-prompt-dir') as HTMLInputElement;
+      const textarea = document.getElementById('init-prompt-textarea') as HTMLTextAreaElement;
       if (!api.selectProjectDir) return;
       selectDirBtn.disabled = true;
       selectDirBtn.textContent = '选择中...';
       try {
         const res = await api.selectProjectDir();
         if (res && res.success && res.dir) {
-          dirInput.value = res.dir;
-          textarea.focus();
+          if (dirInput) dirInput.value = res.dir;
+          if (textarea) textarea.focus();
         } else if (res && !res.success) {
           alert(res.message || '未选择目录');
         }
@@ -71,45 +30,111 @@ export function bindInitPrompt() {
         selectDirBtn.disabled = false;
         selectDirBtn.textContent = '选择目录';
       }
-    };
-  }
-
-  sendBtn.onclick = async () => {
-    const text = textarea.value.trim();
-    if (!dirInput.value) {
-      alert('请先选择项目目录');
       return;
     }
-    if (!text) return;
 
-    sendBtn.disabled = true;
-    sendBtn.textContent = '发送中...';
-    try {
-      if (!api.sendInitMessage) {
-        throw new Error('缺少必要的 API');
+    // 处理发送
+    if (target.closest('#init-prompt-send')) {
+      console.log('[Cuckoo Init] 点击了发送按钮！');
+      e.preventDefault();
+      const modal = document.getElementById('init-prompt-modal');
+      const sendBtn = target.closest('#init-prompt-send') as HTMLButtonElement;
+      const dirInput = document.getElementById('init-prompt-dir') as HTMLInputElement;
+      const textarea = document.getElementById('init-prompt-textarea') as HTMLTextAreaElement;
+
+      let text = textarea ? textarea.value.trim() : '';
+      if (!dirInput || !dirInput.value) {
+        alert('请先选择项目目录');
+        return;
       }
-      const res = await api.sendInitMessage(text, dirInput.value);
-      if (res && res.success) {
-        modal.classList.add('cuckoo-hidden');
-        if (api.setAiViewVisible) { try { api.setAiViewVisible(true); } catch (_) {} }
-      } else {
-        alert('发送失败: ' + (res?.error || '未知错误'));
+      if (!text) text = '请开始分析该项目。';
+
+      // 立刻关闭弹窗，给用户明确反馈
+      alert('已获取到内容，准备发送！');
+      if (modal) modal.classList.add('cuckoo-hidden');
+      if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.textContent = '发送中...';
       }
-    } catch (e: any) {
-      alert('发送异常: ' + e.message);
-    } finally {
-      sendBtn.disabled = false;
-      sendBtn.textContent = '发送';
+
+      // 唤醒视图
+      if (api.setAiViewVisible) {
+        try { api.setAiViewVisible(true).catch(() => {}); } catch (_) {}
+      }
+
+      // 延迟发送确保 DOM 就绪
+      setTimeout(async () => {
+        try {
+          if (!api.sendInitMessage) {
+            throw new Error('缺少必要的 API');
+          }
+          const res = await api.sendInitMessage(text, dirInput.value);
+          if (!res || !res.success) {
+            alert('发送失败: ' + (res?.error || '未知错误'));
+            if (modal) modal.classList.remove('cuckoo-hidden');
+          }
+        } catch (err: any) {
+          alert('发送异常: ' + err.message);
+          if (modal) modal.classList.remove('cuckoo-hidden');
+        } finally {
+          if (sendBtn) {
+            sendBtn.disabled = false;
+            sendBtn.textContent = '发送';
+          }
+        }
+      }, 500);
+      return;
+    }
+
+    // 处理取消
+    if (target.closest('#init-prompt-cancel')) {
+      e.preventDefault();
+      const modal = document.getElementById('init-prompt-modal');
+      if (modal) modal.classList.add('cuckoo-hidden');
+      if (api.setAiViewVisible) {
+        try { api.setAiViewVisible(true).catch(() => {}); } catch (_) {}
+      }
+      if (api.cancelInitPrompt) {
+        api.cancelInitPrompt();
+      }
+      return;
+    }
+  });
+
+  // 保留弹窗显示的监听
+  const modal = document.getElementById('init-prompt-modal');
+  if (modal && modal.parentElement !== document.body) {
+    document.body.appendChild(modal);
+  }
+
+  const triggerShow = (data?: any) => {
+    const m = document.getElementById('init-prompt-modal');
+    if (!m) return;
+    const dirInput = document.getElementById('init-prompt-dir') as HTMLInputElement;
+    const textarea = document.getElementById('init-prompt-textarea') as HTMLTextAreaElement;
+
+    const isVisible = !m.classList.contains('cuckoo-hidden');
+    if (isVisible && (!data || !data.projectDir)) return;
+    
+    if (!isVisible) {
+      m.classList.remove('cuckoo-hidden');
+      if (api.setAiViewVisible) {
+        try { api.setAiViewVisible(false).catch(() => {}); } catch (_) {}
+      }
+    }
+    
+    if (data && data.projectDir) {
+      if (dirInput) dirInput.value = data.projectDir;
+      if (textarea) textarea.focus();
+    } else if (!isVisible) {
+      if (dirInput) dirInput.value = '';
+      if (textarea) textarea.value = '';
     }
   };
 
-  cancelBtn.onclick = () => {
-    modal.classList.add('cuckoo-hidden');
-    if (api.setAiViewVisible) {
-      try { api.setAiViewVisible(true); } catch (_) {}
-    }
-    if (api.cancelInitPrompt) {
-      api.cancelInitPrompt();
-    }
-  };
+  (window as any).__ckShowInitModal = triggerShow;
+
+  if (api.onShowInitPrompt) {
+    api.onShowInitPrompt(triggerShow);
+  }
 }

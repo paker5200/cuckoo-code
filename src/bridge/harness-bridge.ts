@@ -130,7 +130,26 @@ export function initHarnessBridge(): void {
     const text = payload && payload.text;
     if (!text) return;
     clearAbort(); // 新消息：清除中止标志
-    sendToChat(text, 'harness', 300).catch(() => {});
+    
+    // 加回重试机制，防止刚唤醒视图时找不到输入框导致消息丢失
+    let retries = 0;
+    const trySend = () => {
+      sendToChat(text, 'harness', 300).then(ok => {
+        if (ok) return;
+        if (retries < 15) {
+          retries++;
+          setTimeout(trySend, 500);
+        } else {
+          console.error('[Cuckoo Init] 发送失败：找不到 AI 输入框');
+        }
+      }).catch(() => {
+        if (retries < 15) {
+          retries++;
+          setTimeout(trySend, 500);
+        }
+      });
+    };
+    trySend();
   });
 
   // 停止：取消延时发送 + 中止工具回传
