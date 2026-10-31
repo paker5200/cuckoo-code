@@ -306,6 +306,33 @@ v0.8.18 中，上游将整个 UI 重构为 React，并使用了 Electron 的底�
 > 在修改了 `.ts` 或 `.tsx` 源码后，**绝对不要直接跑 `npx electron-builder`！**
 > 必须先跑 **`npm run compile`**，把最新的 TypeScript 源码编译到 `out/` 目录，否则 electron-builder 打包进去的依然是上一次的旧代码，导致“改了代码却毫无效果”的灵异现象！
 
+### 5. 初始化弹窗"发送按钮无响应"的终极修复（v0.8.18 合并后）
+
+> ⚠️ **症状**：点击"开启新对话"选好目录后，点"发送"按钮毫无反应（不弹窗、不关闭、不报错）。
+
+**根因分析**：
+1. 弹窗打开时调用了 `setAiViewVisible(false)` 隐藏了原生 AI 视图。当视图被隐藏时，DOM 渲染进程会被系统挂起（尺寸坍缩为 0），导致 `sendToChat` 找不到有宽度的输入框，静默失败。
+2. 更关键的是：React 化后壳页面的 DOM 会被重新排列，传统 `onclick` 绑定在节点上的监听器可能在弹窗渲染时已经失效。
+
+**修复方案**：
+- **前端 `init-prompt.ts`**：改用**事件委托（Event Delegation）**绑定到 `document`，确保无论 DOM 怎么变，点击始终生效。点击瞬间立刻 `alert` 确认，然后隐藏弹窗、唤醒 AI 视图、`setTimeout` 300ms 后发起 IPC 发送，完全非阻塞。
+- **主进程 `harness.ts`**：发送前强制调用 `win.__ckSetAiViewVisible(true)` 兜底唤醒视图。
+- **接收端 `harness-bridge.ts`**：加入最多 20 次、间隔 500ms 的自动重试机制，确保视图从隐藏恢复后 DOM 渲染完成，再执行 `sendToChat`。
+- **前端防空**：如果用户未填内容，自动填入"请开始分析该项目。"，绝不静默退出。
+
+**涉及文件（下次合并务必人工核查）**：
+- `src/ui/shell/scripts/init-prompt.ts`（全量重写为事件委托）
+- `src/app/ipc/harness.ts`（send-init-message 强制唤醒视图）
+- `src/bridge/harness-bridge.ts`（接收端加重试）
+
+### 6. 偶发"工具调用被中断"提示说明
+
+> 如果偶尔看到 AI 后面跟着 `<system>该工具调用被中断或未被处理。请为工具调用提供有效输入。</system>`，**这是 DeepSeek 页面原生的提示，不是 Cuckoo Code 的 BUG**。
+
+**原因**：AI 生成 cuckoo 代码块时，流式输出被中断（可能是网络波动或服务端限流），导致输出的代码块不完整（如少了闭合的 ``````），DeepSeek 检测到后会自动插入这条提示，要求 AI 重新发送。
+
+**处理方式**：偶发不需要处理，AI 会自动重试。如频繁出现，请检查网络稳定性或 DeepSeek 服务状态。
+
 ---
 
 ## 六、upstream 远程配置（若还没配）
