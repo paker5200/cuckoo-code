@@ -402,6 +402,30 @@ function registerShellIpc(): void {
     return { success: true };
   });
 
+  // 隐藏/显示 AI 视图——壳页面弹窗需要"盖过 AI 区域"时用
+  ipcMain.handle('shell-set-ai-view-visible', async (event: any, { visible }: any) => {
+    try {
+      const { BrowserWindow } = require('electron');
+      const windows = BrowserWindow.getAllWindows();
+      for (const win of windows) {
+        if (!win || win.isDestroyed()) continue;
+        
+        // 如果处于强制隐藏状态，忽略普通的显示请求（防止弹窗打架）
+        if (win.__ckForceHidden && visible) continue;
+        
+        if (typeof win.__ckSetAiViewVisible === 'function') {
+          win.__ckSetAiViewVisible(visible);
+        } else {
+          win.__ckAiViewVisible = visible;
+          if (typeof win.__ckLayout === 'function') win.__ckLayout();
+        }
+      }
+    } catch (err: any) {
+      console.error('[Cuckoo IPC] 设置视图显隐失败:', err.message);
+    }
+    return { success: true };
+  });
+
   // 强制隐藏原生视图（给设置面板专用，不受其他弹窗干扰）
   ipcMain.handle('shell-hide-native-views', async (event: any) => {
     try {
@@ -410,29 +434,13 @@ function registerShellIpc(): void {
       for (const win of windows) {
         if (!win || win.isDestroyed()) continue;
         
-        win.__ckAiViewVisible = false;
-        
-        if (win.contentView) {
-          if (!win.__ckRemovedViews) win.__ckRemovedViews = [];
-          const children = [...(win.contentView.children || [])];
-          for (const child of children) {
-            if (child.webContents === event.sender) continue;
-            // 如果还没被拔除，就拔除并存起来
-            if (!win.__ckRemovedViews.includes(child)) {
-              try { 
-                child.setVisible(false);
-                child.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-                win.contentView.removeChildView(child); 
-                win.__ckRemovedViews.push(child);
-              } catch (_) {}
-            }
-          }
-        }
+        win.__ckForceHidden = true;
         
         if (typeof win.__ckSetAiViewVisible === 'function') {
           win.__ckSetAiViewVisible(false);
-        } else if (typeof win.__ckLayout === 'function') {
-          win.__ckLayout();
+        } else {
+          win.__ckAiViewVisible = false;
+          if (typeof win.__ckLayout === 'function') win.__ckLayout();
         }
       }
     } catch (err: any) {
@@ -441,56 +449,25 @@ function registerShellIpc(): void {
     return { success: true };
   });
 
-  // 隐藏/显示 AI 视图——壳页面弹窗需要"盖过 AI 区域"时用
-  ipcMain.handle('shell-set-ai-view-visible', async (event: any, { visible }: any) => {
+  // 恢复被强制隐藏的原生视图（给设置面板专用）
+  ipcMain.handle('shell-show-native-views', async (event: any) => {
     try {
       const { BrowserWindow } = require('electron');
       const windows = BrowserWindow.getAllWindows();
-      
       for (const win of windows) {
         if (!win || win.isDestroyed()) continue;
         
-        win.__ckAiViewVisible = visible;
+        win.__ckForceHidden = false;
         
-        if (win.contentView) {
-          if (!visible) {
-            // 隐藏：拔掉并存入 __ckRemovedViews
-            if (!win.__ckRemovedViews) win.__ckRemovedViews = [];
-            const children = [...(win.contentView.children || [])];
-            for (const child of children) {
-              if (child.webContents === event.sender) continue;
-              if (!win.__ckRemovedViews.includes(child)) {
-                try { 
-                  child.setVisible(false);
-                  child.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-                  win.contentView.removeChildView(child); 
-                  win.__ckRemovedViews.push(child);
-                } catch (_) {}
-              }
-            }
-          } else {
-            // 恢复：从 __ckRemovedViews 里拿出视图重新插回
-            if (win.__ckRemovedViews && win.__ckRemovedViews.length > 0) {
-              for (const child of win.__ckRemovedViews) {
-                if (child.webContents && !child.webContents.isDestroyed()) {
-                  try { 
-                    win.contentView.addChildView(child); 
-                    child.setVisible(true);
-                  } catch (_) {}
-                }
-              }
-              win.__ckRemovedViews = [];
-            }
-          }
-        }
-        
-        // 触发重排
-        if (typeof win.__ckLayout === 'function') {
-          try { win.__ckLayout(); } catch (_) {}
+        if (typeof win.__ckSetAiViewVisible === 'function') {
+          win.__ckSetAiViewVisible(true);
+        } else {
+          win.__ckAiViewVisible = true;
+          if (typeof win.__ckLayout === 'function') win.__ckLayout();
         }
       }
     } catch (err: any) {
-      console.error('[Cuckoo IPC] 设置视图显隐失败:', err.message);
+      console.error('[Cuckoo IPC] 恢复原生视图失败:', err.message);
     }
     return { success: true };
   });
