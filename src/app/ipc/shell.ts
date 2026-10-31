@@ -403,6 +403,7 @@ function registerShellIpc(): void {
   });
 
   // 隐藏/显示 AI 视图——壳页面弹窗需要"盖过 AI 区域"时用
+  // 【绝对不要使用 removeChildView，会导致 AI 页面白屏死亡和焦点丢失】
   ipcMain.handle('shell-set-ai-view-visible', async (event: any, { visible }: any) => {
     try {
       const { BrowserWindow } = require('electron');
@@ -410,12 +411,11 @@ function registerShellIpc(): void {
       for (const win of windows) {
         if (!win || win.isDestroyed()) continue;
         
-        // 如果处于强制隐藏状态，忽略普通的显示请求（防止弹窗打架）
-        if (win.__ckForceHidden && visible) continue;
-        
+        // 直接调用原作者提供的标准显隐接口，它内部会设置 __ckAiViewVisible 并触发重排
         if (typeof win.__ckSetAiViewVisible === 'function') {
           win.__ckSetAiViewVisible(visible);
         } else {
+          // 兜底逻辑
           win.__ckAiViewVisible = visible;
           if (typeof win.__ckLayout === 'function') win.__ckLayout();
         }
@@ -426,15 +426,13 @@ function registerShellIpc(): void {
     return { success: true };
   });
 
-  // 强制隐藏原生视图（给设置面板专用，不受其他弹窗干扰）
+  // 强制隐藏原生视图（给设置面板专用）
   ipcMain.handle('shell-hide-native-views', async (event: any) => {
     try {
       const { BrowserWindow } = require('electron');
       const windows = BrowserWindow.getAllWindows();
       for (const win of windows) {
         if (!win || win.isDestroyed()) continue;
-        
-        win.__ckForceHidden = true;
         
         if (typeof win.__ckSetAiViewVisible === 'function') {
           win.__ckSetAiViewVisible(false);
@@ -456,8 +454,6 @@ function registerShellIpc(): void {
       const windows = BrowserWindow.getAllWindows();
       for (const win of windows) {
         if (!win || win.isDestroyed()) continue;
-        
-        win.__ckForceHidden = false;
         
         if (typeof win.__ckSetAiViewVisible === 'function') {
           win.__ckSetAiViewVisible(true);
