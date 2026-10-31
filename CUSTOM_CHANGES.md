@@ -281,6 +281,33 @@
 
 ---
 
+## 五-补、血泪教训：设置面板被原生视图遮挡的终极修复（v0.8.18 合并后排查）
+
+> ⚠️ **这是 v0.8.18 升级后最坑的一个 Bug。设置面板弹出来后，右侧被 AI 聊天窗完美覆盖，左侧无法点击，或者根本看不见。**
+
+### 1. 为什么会被遮挡？
+v0.8.18 中，上游将整个 UI 重构为 React，并使用了 Electron 的底层 API `BrowserWindow` + `WebContentsView` 组合（以前是 `BrowserView`）。
+- **原生视图层级最高**：在 Electron 中，原生的 `WebContentsView`（即 AI 聊天页面）永远浮在 DOM 之上，CSS 的 `z-index: 9999` 对它完全无效。
+- **上下文丢失**：以前隐藏视图靠 `getContextByWebContents` 找窗口，但在新架构下，壳页面本身也是个 View，传进来的 `sender` 经常匹配不到，导致隐藏逻辑直接 `return` 了。
+- **弹窗竞态**：如果打开设置面板时，后台刚好有关闭的提示框（如 `ckAlert`），它退出时会触发 `setAiViewVisible(true)`，瞬间把刚隐藏的 AI 视图又放出来。
+
+### 2. 终极修复方案（已实现，务必保留）
+- **物理拔除**：不再用 `setVisible(false)`，而是主进程直接遍历 `win.contentView.children`，把非壳页面的子视图用 `removeChildView` 物理拔掉，关闭设置时再 `addChildView` 插回去。
+- **同步上锁**：在 `shell-frame.tsx` 的 `onSettingsClick` 中，同步设置 `window.__ckModalOpen = true`，并在其他弹窗关闭时检查该锁，防止 AI 视图被提前唤醒。
+- **独立 IPC**：新增 `shell-hide-native-views` 专属接口，专供设置面板调用，绝对不受其他弹窗干扰。
+
+### 3. 涉及改动点（下次合并务必人工核查）
+- `src/app/ipc/shell.ts`：新增 `shell-hide-native-views` handler。
+- `src/app/shell-preload.ts`：暴露 `hideNativeViews`。
+- `src/ui/shell/scripts/shell-api.ts`：增加类型定义。
+- `src/ui/shell/scripts/shell-frame.tsx`：修改 `onSettingsClick` 和 `useEffect`。
+
+### 4. ⚠️ 打包必死坑（非常重要）
+> 在修改了 `.ts` 或 `.tsx` 源码后，**绝对不要直接跑 `npx electron-builder`！**
+> 必须先跑 **`npm run compile`**，把最新的 TypeScript 源码编译到 `out/` 目录，否则 electron-builder 打包进去的依然是上一次的旧代码，导致“改了代码却毫无效果”的灵异现象！
+
+---
+
 ## 六、upstream 远程配置（若还没配）
 
     git remote add upstream https://github.com/wangyongpeng90/cuckoo-code.git
