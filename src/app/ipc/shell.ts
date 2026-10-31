@@ -410,19 +410,25 @@ function registerShellIpc(): void {
       for (const win of windows) {
         if (!win || win.isDestroyed()) continue;
         
-        // 1. 强制设置状态位为 false
         win.__ckAiViewVisible = false;
         
-        // 2. 暴力遍历并隐藏所有原生子视图
-        if (win.contentView && win.contentView.children) {
-          for (const child of win.contentView.children) {
+        if (win.contentView) {
+          if (!win.__ckRemovedViews) win.__ckRemovedViews = [];
+          const children = [...(win.contentView.children || [])];
+          for (const child of children) {
             if (child.webContents === event.sender) continue;
-            try { child.setVisible(false); } catch (_) {}
-            try { child.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
+            // 如果还没被拔除，就拔除并存起来
+            if (!win.__ckRemovedViews.includes(child)) {
+              try { 
+                child.setVisible(false);
+                child.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+                win.contentView.removeChildView(child); 
+                win.__ckRemovedViews.push(child);
+              } catch (_) {}
+            }
           }
         }
         
-        // 3. 调用原作者的强制重排，让 layoutView 按 false 状态执行
         if (typeof win.__ckSetAiViewVisible === 'function') {
           win.__ckSetAiViewVisible(false);
         } else if (typeof win.__ckLayout === 'function') {
@@ -446,29 +452,39 @@ function registerShellIpc(): void {
         
         win.__ckAiViewVisible = visible;
         
-        // 暴力遍历 contentView.children（底层原生视图，绝对能拿到）
-        if (win.contentView && win.contentView.children) {
-          const children = [...win.contentView.children];
-          for (const child of children) {
-            // 如果这是壳页面（发 IPC 的页面），千万不能动它
-            if (child.webContents === event.sender) continue;
-            
-            // 剩下的肯定是 AI 页面或 Harness 页面，强制隐藏/显示
-            try { child.setVisible(visible); } catch (_) {}
-            
-            if (!visible) {
-              // 1. 尺寸清零
-              try { child.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (_) {}
-              // 2. 从视图树中移除（物理隔绝，绝对无法遮挡）
-              try { win.contentView.removeChildView(child); } catch (_) {}
-            } else {
-              // 恢复时重新加回来
-              try { win.contentView.addChildView(child); } catch (_) {}
+        if (win.contentView) {
+          if (!visible) {
+            // 隐藏：拔掉并存入 __ckRemovedViews
+            if (!win.__ckRemovedViews) win.__ckRemovedViews = [];
+            const children = [...(win.contentView.children || [])];
+            for (const child of children) {
+              if (child.webContents === event.sender) continue;
+              if (!win.__ckRemovedViews.includes(child)) {
+                try { 
+                  child.setVisible(false);
+                  child.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+                  win.contentView.removeChildView(child); 
+                  win.__ckRemovedViews.push(child);
+                } catch (_) {}
+              }
+            }
+          } else {
+            // 恢复：从 __ckRemovedViews 里拿出视图重新插回
+            if (win.__ckRemovedViews && win.__ckRemovedViews.length > 0) {
+              for (const child of win.__ckRemovedViews) {
+                if (child.webContents && !child.webContents.isDestroyed()) {
+                  try { 
+                    win.contentView.addChildView(child); 
+                    child.setVisible(true);
+                  } catch (_) {}
+                }
+              }
+              win.__ckRemovedViews = [];
             }
           }
         }
         
-        // 触发重排（让 layoutView 计算正确的位置）
+        // 触发重排
         if (typeof win.__ckLayout === 'function') {
           try { win.__ckLayout(); } catch (_) {}
         }
