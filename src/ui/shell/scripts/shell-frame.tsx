@@ -205,7 +205,11 @@ function ShellFrame() {
     if (shouldHide) {
       if (anyApi.hideNativeViews) anyApi.hideNativeViews().catch(() => {});
     } else {
-      if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {});
+      if (anyApi.showNativeViews) {
+        anyApi.showNativeViews().catch(() => {});
+      } else if (anyApi.setAiViewVisible) {
+        anyApi.setAiViewVisible(true).catch(() => {});
+      }
     }
   }, [isMainSlotActive, settingsOpen]);
 
