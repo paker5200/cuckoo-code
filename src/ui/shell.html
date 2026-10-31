@@ -31536,8 +31536,13 @@ body {
       setSettingsOpen(false);
       window.__ckModalOpen = false;
       const anyApi = api;
-      if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {
-      });
+      if (anyApi.showNativeViews) {
+        anyApi.showNativeViews().catch(() => {
+        });
+      } else if (anyApi.setAiViewVisible) {
+        anyApi.setAiViewVisible(true).catch(() => {
+        });
+      }
     };
     const viewportEl = (0, import_react8.useMemo)(() => document.querySelector(".viewport"), []);
     const closeMainPanel = () => {

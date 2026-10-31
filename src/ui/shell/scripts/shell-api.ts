@@ -15,6 +15,7 @@ export interface ShellAPI {
   /** 隐藏/显示 AI 视图（弹窗盖过 AI 区域时用） */
   setAiViewVisible?: (visible: boolean) => Promise<any>;
   hideNativeViews?: () => Promise<any>;
+  showNativeViews?: () => Promise<any>;
   /** 选择项目目录 */
   selectProjectDir?: () => Promise<{ success: boolean; message: string; dir?: string }>;
   /** 取消初始化 */

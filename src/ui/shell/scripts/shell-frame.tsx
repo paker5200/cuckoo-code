@@ -226,7 +226,11 @@ function ShellFrame() {
     // 同步解锁，恢复视图
     (window as any).__ckModalOpen = false;
     const anyApi = api as any;
-    if (anyApi.setAiViewVisible) anyApi.setAiViewVisible(true).catch(() => {});
+    if (anyApi.showNativeViews) {
+      anyApi.showNativeViews().catch(() => {});
+    } else if (anyApi.setAiViewVisible) {
+      anyApi.setAiViewVisible(true).catch(() => {});
+    }
   };
   // DSH main 插槽内容 → Portal 到 .viewport（和 AI 网页同位置）
   const viewportEl = useMemo(() => document.querySelector('.viewport'), []);

@@ -50,6 +50,7 @@ const shellAPI = {
   // 隐藏/显示 AI 视图（壳页面弹窗需要盖过 AI 区域时用）
   setAiViewVisible: (visible: boolean) => ipcRenderer.invoke('shell-set-ai-view-visible', { visible }),
   hideNativeViews: () => ipcRenderer.invoke('shell-hide-native-views'),
+  showNativeViews: () => ipcRenderer.invoke('shell-show-native-views'),
   // 侧边栏拖拽调宽（AI 视图会临时移出，鼠标事件全落在壳页面；主进程轮询算宽度后推回）
   startSidebarDrag: () => ipcRenderer.send('shell-sidebar-drag-start'),
   endSidebarDrag: () => ipcRenderer.send('shell-sidebar-drag-end'),
