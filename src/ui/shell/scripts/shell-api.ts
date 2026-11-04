@@ -60,14 +60,6 @@ export interface ShellAPI {
   wgRename?: (groupId: string, name: string) => Promise<any>;
   wgDelete?: (groupId: string) => Promise<any>;
   wgSwitch?: (groupId: string) => Promise<any>;
-  // 记忆
-  getMemoriesEnabled?: () => Promise<any>;
-  setMemoriesEnabled?: (enabled: boolean) => Promise<any>;
-  listMemories?: () => Promise<any>;
-  saveMemories?: (memories: any[]) => Promise<any>;
-  addMemory?: (text: string) => Promise<any>;
-  deleteMemory?: (id: string) => Promise<any>;
-  onMemoriesChanged?: (cb: () => void) => void;
   /** 切换纯净对话模式（Harness） */
   toggleHarness?: () => Promise<any>;
   /** 纯净模式状态变化（harness=true 表示已进入纯净模式） */
@@ -126,8 +118,14 @@ export interface ShellAPI {
   getAutoCompact?: () => Promise<any>;
   saveAutoCompact?: (data: any) => Promise<any>;
   triggerCompact?: () => Promise<any>;
+  // [261101-ym9l98] 跨窗口通用设置（主进程内存 + DB）
+  getSharedSettings?: () => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>;
+  saveSharedSettings?: (data: Record<string, string>) => Promise<{ success: boolean; error?: string }>;
+  resetSharedSettings?: (keys: string[]) => Promise<{ success: boolean; error?: string }>;
+  onSharedSettingsChanged?: (cb: (payload: any) => void) => void;
   // 设置
   getSettings?: () => Promise<any>;
+  getUsageStats?: (params: any) => Promise<any>;
   saveSettings?: (data: any) => Promise<any>;
   resetSettings?: () => Promise<any>;
   // 关于

@@ -136,14 +136,14 @@ export function initHarnessBridge(): void {
     const trySend = () => {
       sendToChat(text, 'harness', 300).then(ok => {
         if (ok) return;
-        if (retries < 15) {
+        if (retries < 20) {
           retries++;
           setTimeout(trySend, 500);
         } else {
           console.error('[Cuckoo Init] 发送失败：找不到 AI 输入框');
         }
       }).catch(() => {
-        if (retries < 15) {
+        if (retries < 20) {
           retries++;
           setTimeout(trySend, 500);
         }

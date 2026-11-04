@@ -10,6 +10,7 @@ import * as profileManager from './profile.js';
 import { createSessionStore } from '../session/store.js';
 import { createLogicIdMap } from '../session/logic-id-map.js';
 import { initDatabase, migrateLegacyData } from '../session/db.js';
+import { initSettingsStore, getSetting } from './settings-store.js';
 import { getProvider } from '../providers/registry.js';
 import * as updater from '../updater/index.js';
 import * as mcpConfig from '../mcp/config.js';
@@ -18,12 +19,6 @@ import { resolveAsset, resolveSrc } from '../infra/paths.js';
 
 const require = createRequire(import.meta.url);
 const { app, BrowserWindow, WebContentsView, Menu, dialog, screen, nativeTheme, ipcMain: ipcMainForProfile } = require('electron');
-
-// ========== 关闭确认 ==========
-/** 已确认关闭的窗口 id（确认后再次触发 close 时直接放行，避免重复弹框） */
-const closeConfirmed = new Set<number>();
-/** 应用退出中（菜单退出 / 自动更新重启）——退出是明确意图，跳过逐窗口关闭确认 */
-let isQuitting = false;
 
 // ========== 持久化会话配置 ==========
 const SESSION_DIR = process.env.CUCKOO_SESSION_DIR || 'cuckoo-code-flash-session';
@@ -45,6 +40,10 @@ console.log('[Cuckoo Code] Session 数据目录:', app.getPath('userData'));
 
 // 初始化 SQLite 数据库
 const globalDb = initDatabase(app.getPath('userData'));
+// [261101-ym9l98] 跨窗口通用设置（主进程内存 + meta 表持久化）
+initSettingsStore(globalDb);
+// 注入给 tools 层（read 首行模板等需要读通用设置）
+injectSettingReader((key: string) => getSetting(key));
 // 迁移老 JSON 数据
 migrateLegacyData(globalDb, app.getPath('userData'));
 
@@ -75,16 +74,22 @@ import { buildChromeUserAgent, buildClientHintsHeaders } from '../infra/user-age
 import { initFeishu } from './ipc/feishu.js';
 import { injectSubagentDeps, runAgent as runAgentImpl } from './subagent.js';
 import { injectAgentRunner, injectSubagentChecker } from '../tools/impl/run-agent.js';
+import { injectSettingReader } from '../tools/impl/read.js';
 import { injectGoalDonePusher } from '../tools/impl/goal-done.js';
 import { isSubagentWindow, pushGoalDone } from './goal.js';
 import { injectSessionTitleSetter } from '../tools/impl/name-conversation.js';
-import { injectMemoryStore } from '../tools/impl/remember.js';
-import { addMemory, removeMemory, listMemories } from '../infra/memories.js';
 import { pushUrlState } from './ipc/shell.js';
 import { pushHarnessState, stopGeneration } from './ipc/harness.js';
 import { injectWindowGroupDeps, requestSwitchShare } from './ipc/window-groups.js';
 import { initProject } from '../session/project-context.js';
 import * as windowGroups from './window-groups.js';
+
+// 全局默认 UA：Electron 默认的 app.userAgentFallback 含 "Electron/x.y.z Chrome/<内核完整版>"
+// 标识，与下面 view.webContents.setUserAgent() 设置的干净 Chrome UA（Chrome/<主版本>.0.0.0）
+// 不一致。壳页面 / Service Worker / 部分子资源会走 fallback，暴露 Electron 标识与源内核完整版本，
+// 造成"一处 Chrome 版本、一处源内核版本"的矛盾（DeepSeek / Google OAuth 判定环境异常）。
+// 在 app.whenReady() 之前统一设置为干净 UA，保证所有 WebContents 一致。
+app.userAgentFallback = buildChromeUserAgent();
 
 // 退出前需要 flush 的 sessions
 const sessionsToFlush = new Set<any>();
@@ -604,33 +609,8 @@ function createWindow(profile: any) {
   });
 
   // 关闭前记录窗口大小/位置（用 getNormalBounds 取"还原后"尺寸；closed 时窗口已销毁取不到）
-  mainWindow.on('close', (e: any) => {
-    if (profileData.isSubagent) return; // 子代理窗口：不记录、不弹框
-    // 应用退出中（菜单退出 / 更新重启）：退出是明确意图，不弹框（否则逐窗口弹框会阻塞退出/更新安装）
-    if (isQuitting) return;
-    // 未确认关闭 且 非程序主动关闭 → 弹框确认
-    if (!closeConfirmed.has(mainWindow.id) && !(mainWindow as any).__programmaticClose) {
-      e.preventDefault();
-      // 防重复：弹框已打开时再点 ✕ 不再弹
-      if ((mainWindow as any).__closeDialogOpen) return;
-      (mainWindow as any).__closeDialogOpen = true;
-      dialog.showMessageBox(mainWindow, {
-        type: 'question',
-        buttons: ['取消', '关闭'],
-        defaultId: 1,
-        cancelId: 0,
-        noLink: true,
-        title: '确认关闭',
-        message: '确定要关闭窗口「' + (profileData.name || profileData.id) + '」吗？',
-      }).then((res: any) => {
-        (mainWindow as any).__closeDialogOpen = false;
-        if (res && res.response === 1) {
-          closeConfirmed.add(mainWindow.id);
-          if (!mainWindow.isDestroyed()) mainWindow.close();
-        }
-      }).catch(() => { (mainWindow as any).__closeDialogOpen = false; });
-      return;
-    }
+  mainWindow.on('close', () => {
+    if (profileData.isSubagent) return; // 子代理窗口：不记录
     try {
       if (mainWindow.isDestroyed()) return;
       const b = mainWindow.getNormalBounds();
@@ -878,12 +858,6 @@ injectSessionTitleSetter(async ({ windowId, title }: any) => {
   return r;
 });
 
-// 给 remember/forgetMemory 工具注入记忆存储（tools 层不依赖 app/infra 实现）
-injectMemoryStore({
-  add: (text: string) => { const m = addMemory(text); return m ? { id: m.id } : null; },
-  remove: (id: string) => removeMemory(id),
-  list: () => listMemories().map((m) => ({ id: m.id, text: m.text })),
-});
 // ========== 窗口组探测 ==========
 // 把目标窗口导航到 "首页?cuckoo-probe=1"，等其 bridge 上报探测结果。
 // 返回 'ok' | 'limited' | 'timeout' | 'error'
@@ -1083,7 +1057,6 @@ ipcMainForProfile.handle('delete-profile', async (_event: any, { profileId }: an
   const all = windowState.getAllWindowsByProfileId(profileId);
   for (const c of all) {
     if (c && c.win && !c.win.isDestroyed()) {
-      (c.win as any).__programmaticClose = true; // 删除窗口是明确意图，跳过关闭确认
       c.win.close();
     }
   }
@@ -1397,8 +1370,6 @@ app.on('window-all-closed', () => {
 // 退出前刷新所有 session 数据 + 断开所有 MCP 连接
 let quitFlushed = false;
 app.on('before-quit', (event: any) => {
-  // 应用退出中：置位，让各窗口的 close 处理跳过"确认关闭"弹框（菜单退出 / 自动更新重启）
-  isQuitting = true;
   if (quitFlushed) return;
   event.preventDefault();
   quitFlushed = true;

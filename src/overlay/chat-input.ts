@@ -4,8 +4,8 @@
  */
 import { createRequire } from 'node:module';
 import { state } from './state.js';
-import { BT } from '../infra/markdown.js';
 import { getProviderByUrl } from '../providers/registry.js';
+import { pickJsResultPhrase, pickJsResultItemTemplate, formatJsResultItemTitle } from './js-result-phrases.js';
 
 // electron 特殊：其 index.js 导出字符串，须用 createRequire（见 P3a 手册 1.5）
 const require = createRequire(import.meta.url);
@@ -19,11 +19,11 @@ function getCurrentProvider(): any {
 }
 
 /**
- * 生成随机等待时间（ms），范围由 state 配置（默认 2-4 秒）
+ * 生成随机等待时间（ms），范围由 state 配置（默认 10-20 秒）
  */
 function randomDelay(): number {
-  const min = typeof state.sendDelayMin === 'number' ? state.sendDelayMin : 2000;
-  const max = typeof state.sendDelayMax === 'number' ? state.sendDelayMax : 4000;
+  const min = typeof state.sendDelayMin === 'number' ? state.sendDelayMin : 10000;
+  const max = typeof state.sendDelayMax === 'number' ? state.sendDelayMax : 20000;
   if (min >= max) return min;
   return Math.floor(Math.random() * (max - min)) + min;
 }
@@ -244,21 +244,25 @@ async function sendCombinedJsResultsToChat(results: any, onSent?: () => void): P
   const MAX_OUTPUT = 15000;
   const sep = String.fromCharCode(10);
 
-  let msg = '【JS 执行结果汇总】(共 ' + results.length + ' 个脚本)' + sep + sep;
+  // [261101-ym9l98-mod] 原先消息头为固定文案「【JS 执行结果汇总】(共 N 个脚本)」，现改为从可配置池随机取
+  let msg = pickJsResultPhrase(results.length) + sep + sep;
+  // [261101-ym9l98] 标题模板整条消息抽一次（同批风格统一），循环内只替换 {i}/{r}
+  const itemTpl = pickJsResultItemTemplate();
 
   for (let i = 0; i < results.length; i++) {
     const item = results[i];
-    msg += '—— 脚本 ' + (i + 1) + ' ——' + sep;
-    if (item && item.result && item.result.success) {
+    const ok = !!(item && item.result && item.result.success);
+    // [261101-ym9l98-mod] 原先标题固定为「—— 脚本 N ——」且成败另起一行（✅/❌）；现成败融入标题、不换行
+    msg += formatJsResultItemTitle(itemTpl, i + 1, ok) + sep;
+    if (ok) {
       let out = (item.result.output || '').trim();
       if (out.length > MAX_OUTPUT) {
         out = out.slice(0, MAX_OUTPUT) + sep + '...[输出过长已截断]...';
       }
-      msg += '✅ 成功' + sep + (out || '(脚本执行完成，无输出)');
+      msg += (out || '(脚本执行完成，无输出)');
     } else {
-      msg += '❌ 失败' + sep + '错误原因: ' + ((item && item.result && item.result.error) || '未知错误') + sep;
-      msg += '本次实际执行的代码(前300字符):' + sep + String((item && item.code) || '').slice(0, 300) + sep;
-      msg += '请修正 JavaScript 代码后重新输出完整的 ' + BT + BT + BT + 'cuckoo 代码块。';
+      // [261101-ym9l98-mod] 原先还会回传代码前 300 字符并提示 AI 修正格式，现只保留错误原因
+      msg += '错误原因: ' + ((item.result && item.result.error) || '未知错误');
     }
     msg += sep + sep;
   }
@@ -483,6 +487,15 @@ async function insertSnippet(content: string, autoSend?: boolean): Promise<boole
  */
 function triggerSend(input: any): void {
   const provider = getCurrentProvider();
+
+  // [261031-x7k9p2] 记录 send 事件
+  try {
+    const api = (window as any).electronAPI;
+    if (api && api.logAiUsage) {
+      api.logAiUsage({ eventType: 'send', providerId: provider ? provider.id : 'unknown' });
+      console.log('[Cuckoo Code][Usage] 已上报发送事件');
+    }
+  } catch (e) { console.error('[Cuckoo Code][Usage] 上报发送失败', e); }
 
   // 方法 0: 站点原生发送（智谱等免疫合成事件的平台，经主进程注入真实级输入）
   if (provider && typeof provider.triggerSend === 'function') {

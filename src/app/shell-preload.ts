@@ -231,17 +231,17 @@ const shellAPI = {
   saveAutoCompact: (data: any) => ipcRenderer.invoke('save-autocompact', { data }),
   triggerCompact: () => ipcRenderer.invoke('trigger-compact'),
   // ========== 记忆 ==========
-  listMemories: () => ipcRenderer.invoke('list-memories'),
-  getMemoriesEnabled: () => ipcRenderer.invoke('get-memories-enabled'),
-  setMemoriesEnabled: (enabled: boolean) => ipcRenderer.invoke('set-memories-enabled', { enabled }),
-  saveMemories: (memories: any) => ipcRenderer.invoke('save-memories', { memories }),
-  addMemory: (text: string) => ipcRenderer.invoke('add-memory', { text }),
-  deleteMemory: (id: string) => ipcRenderer.invoke('delete-memory', { id }),
-  onMemoriesChanged: (cb: () => void) => {
-    ipcRenderer.on('shell-memories-changed', () => cb());
-  },
+
   // ========== 设置 ==========
+  // [261101-ym9l98] 跨窗口通用设置（主进程内存 + DB；与历史 localStorage 设置并存）
+  getSharedSettings: () => ipcRenderer.invoke('get-shared-settings'),
+  saveSharedSettings: (data: any) => ipcRenderer.invoke('save-shared-settings', { data }),
+  resetSharedSettings: (keys: any) => ipcRenderer.invoke('reset-shared-settings', { keys }),
+  onSharedSettingsChanged: (cb: (payload: any) => void) => {
+    ipcRenderer.on('cuckoo-shared-settings-changed', (_e: any, payload: any) => cb(payload));
+  },
   getSettings: () => ipcRenderer.invoke('get-settings'),
+  getUsageStats: (params: any) => ipcRenderer.invoke('get-usage-stats', params),
   saveSettings: (data: any) => ipcRenderer.invoke('save-settings', { data }),
   resetSettings: () => ipcRenderer.invoke('reset-settings'),
   // ========== 日志（仅打包版生效）==========
