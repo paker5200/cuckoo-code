@@ -294,7 +294,17 @@ function registerSessionIpc(): void {
       }, 2000);
     };
     try { wc.on('did-finish-load', onLoad); } catch (_) { /* ignore */ }
-    try { await wc.loadURL(homeUrl); } catch (err: any) { return { success: false, error: err.message }; }
+    // [定制] URL 带 cuckoo-project-dir：让 handleUrlChange 保住 selectedProjectDir，
+    // 避免 loadURL 瞬间被判"未初始化"而弹出网页覆盖层的 first-time-dialog 提示。
+    let targetUrl = homeUrl;
+    try {
+      const u = new URL(homeUrl);
+      u.searchParams.set('cuckoo-project-dir', String(projectDir));
+      targetUrl = u.toString();
+    } catch (_) {
+      targetUrl = homeUrl + (homeUrl.includes('?') ? '&' : '?') + 'cuckoo-project-dir=' + encodeURIComponent(String(projectDir));
+    }
+    try { await wc.loadURL(targetUrl); } catch (err: any) { return { success: false, error: err.message }; }
     return {
       success: true,
       folder: progressInfo.folder,
@@ -349,7 +359,18 @@ function registerSessionIpc(): void {
       }, 2000);
     };
     try { wc.on('did-finish-load', onLoad); } catch (_) { /* ignore */ }
-    try { await wc.loadURL(homeUrl); } catch (err: any) { return { success: false, error: err.message }; }
+    // [定制] 同理：有 projectDir 时带 cuckoo-project-dir，避免触发网页覆盖层 first-time-dialog
+    let contTargetUrl = homeUrl;
+    if (projectDir) {
+      try {
+        const u = new URL(homeUrl);
+        u.searchParams.set('cuckoo-project-dir', String(projectDir));
+        contTargetUrl = u.toString();
+      } catch (_) {
+        contTargetUrl = homeUrl + (homeUrl.includes('?') ? '&' : '?') + 'cuckoo-project-dir=' + encodeURIComponent(String(projectDir));
+      }
+    }
+    try { await wc.loadURL(contTargetUrl); } catch (err: any) { return { success: false, error: err.message }; }
     return { success: true, projectDir: projectDir || null, pendingTextLen: pendingText.length };
   });
 
