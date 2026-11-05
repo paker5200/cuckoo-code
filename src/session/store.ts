@@ -361,19 +361,11 @@ function createSessionStore(profileId: string, db: DatabaseSync, windowState: an
           if (canSend) emitProjectDir(wc, urlProjectDir);
         }
       } catch (_) { /* ignore */ }
-      
-      // 【终极统一】落到首页时通知壳页面弹窗
-      // [022] 但插件驱动（URL 带 cuckoo_logic_id）时**不弹窗**——插件自己通过 meta.cwd 指定了目录，
-      // 弹窗是给"用户手动新建"的引导，不该强加给插件。对齐 DSH 语义（无 cwd 会话合法存在）。
-      // 详见 docs/dsh-compat-decisions.md 9.1 + 本次真机验证发现。
-      if (!urlLogicId) {
-        const ctx = windowState && windowState.getContextByWebContents ? windowState.getContextByWebContents(wc) : null;
-        if (!ctx || !ctx.win || ctx.win.isDestroyed()) return;
-        // [022] 子代理窗口自己通过 initProject(noDialog=true) 初始化，不弹窗
-        // 详见 docs/dsh-compat-decisions.md 9.1 + subagent.ts 的初始化流程
-        if (ctx.isSubagent) return;
-        ctx.win.webContents.send('shell-show-init-prompt', { projectDir: urlProjectDir });
-      }
+      // [定制] 已取消"落到首页自动弹初始化项目框"：
+      // 上游 v0.8.18 在此处 send('shell-show-init-prompt')，与定制版"自动开启新对话"冲突，
+      // 每次点新对话都强制用户选目录+输入内容才能继续。现改为：
+      //   - 手动初始化入口仍在（toolbar.ts 的 project-picker 按钮 / overlay 的初始化按钮）
+      //   - 工作区新建对话走定制版 newConversationWithProgress，自行处理目录
     }
   }
 
