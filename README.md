@@ -30,7 +30,44 @@
 
 ## 捐赠与支持
 
-> 🚫 本项目不接受任何形式的个人捐赠——作者不会收取任何款项。
+> 🚫 **本项目不接受任何形式的个人捐赠**——作者不会收取任何款项,一分钱也是爱心。
+>
+> ✅ 如果你想支持本项目，欢迎向 **壹基金（One Foundation）** 捐赠：
+> [https://onefoundation.cn/donate/](https://onefoundation.cn/donate/)
+>
+> 所有捐赠款项**直接进入壹基金公益账户**，与作者无关，纯属公益行为。
+
+**已通过壹基金捐赠的善款：13 笔 / 1108.88 元**
+
+| 捐赠者 | 金额 | 日期 | 捐赠证书 |
+|---|---|---|---|
+| 匿名 | 30 元 | 2026-11-08 | 要求匿名 |
+| 无妄海(群内昵称) | 100 元 | 2026-11-04 | [https://onefoundation.cn/cert/20261104141722603/](https://onefoundation.cn/cert/20261104141722603/) |
+| 张淳 | 100 元 | 2026-11-03 | [https://onefoundation.cn/cert/20261103170383032/](https://onefoundation.cn/cert/20261103170383032/) |
+| 勿痕(群内昵称) | 100 元 | 2026-11-03 | [https://onefoundation.cn/cert/20261103173624856/](https://onefoundation.cn/cert/20261103173624856/) |
+| coco | 88.88 元 | 2026-11-03 | [https://onefoundation.cn/cert/20261103165289162/](https://onefoundation.cn/cert/20261103165289162/) |
+| 烈云 | 100 元 | 2026-10-29 |[https://onefoundation.cn/cert/20261101152146565/](https://onefoundation.cn/cert/20261101152146565/)|
+| 石垚 | 2 元 | 2026-10-29 |[https://onefoundation.cn/cert/20261101205925282/](https://onefoundation.cn/cert/20261101205925282/)|
+| 刘先生| 100 元 | 2026-10-29 |要求匿名|
+| CS | 100 元 | 2026-10-29 |[https://onefoundation.cn/cert/20261029003017507/](https://onefoundation.cn/cert/20261029003017507/)|
+| 杨先生 | 88 元 | 2026-10-29 |[https://onefoundation.cn/cert/20261029065593254/](https://onefoundation.cn/cert/20261029065593254/))|
+| Hazel | 100 元 | 2026-10-26 | [https://onefoundation.cn/cert/20261027103737586/](https://onefoundation.cn/cert/20261027103737586/)|
+| 十七不是石器ᯤ | 100 元 | 2026-10-26 | [https://onefoundation.cn/cert/20261026213679892/](https://onefoundation.cn/cert/20261026213679892/)|
+| 王先生 | 100 元 | 2026-10-26 | [https://onefoundation.cn/cert/20261026131837934/](https://onefoundation.cn/cert/20261026131837934/) |
+
+> 名单持续更新中，完整历史详见 [DONORS.md](DONORS.md)
+
+**捐赠者权益**（凭壹基金捐赠证书联系作者获取）：
+
+- 深度定制开发
+- 单独社区群聊
+- 优先咨询服务
+
+> 💝 **获取权益方式**：完成壹基金捐赠后，保存证书链接，联系作者（注明「**Cuckoo 捐赠**」），会为你登记入 [捐赠者名单](DONORS.md) 并拉入权益通道：
+>
+> - QQ：**61519628**
+> - 微信：**w_y_p666**
+> - 邮箱：**wangyongpeng@yongpeng.wang**
 
 ---
 
@@ -373,7 +410,17 @@ cuckoo-code/
 
 ## 交流群
 
-加入 Cuckoo Code 用户交流群，与其他用户交流使用经验
+加入 Cuckoo Code 用户交流群，与其他用户交流使用经验：
+
+**QQ 群**
+
+<img src="assets/qq-group.jpg" alt="QQ 群" width="240">
+
+**微信群**
+
+<img src="assets/wechat-group.jpg" alt="微信群" width="360">
+
+> 群二维码约 7 天过期，如已失效请在 Issues 中提醒更新。
 
 ---
 
