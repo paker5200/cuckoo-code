@@ -348,6 +348,19 @@ function registerSessionIpc(): void {
         '【续接说明】上一会话因上下文耗尽中断。中断前最后一个工具调用的执行结果如下，' +
         '请据此继续工作（不要重复执行同一工具；如需更多上下文，请用工具读取项目文件）：\n\n' + pendingText;
     }
+    // [定制-flash] 上下文耗尽续接时补读「项目进度」：新会话上下文是空的，
+    // 必须先按 AI_CONTEXT.md 的指示读交接笔记 + GOAL/TODO，才能"接着干"而不是"重来"。
+    try {
+      const progressFolder = projectDir ? path.join(String(projectDir), '项目进度') : '';
+      if (projectDir && progressFolder && fs.existsSync(path.join(progressFolder, 'STATUS.md'))) {
+        extraPrompt += '\n\n【进度上下文】本任务已有「项目进度」文件夹：' + progressFolder + '\n' +
+          '进度规则和当前状态已在系统提示词的「## 项目进度」章节中，不要再读 RULES.md / STATUS.md，直接从「下一步」继续工作。' +
+          '已完成项不要重做，「已挂起」的任务不要主动碰。';
+        console.log('[Cuckoo Code] 续接提示词已追加「项目进度」上下文: ' + progressFolder);
+      }
+    } catch (err: any) {
+      console.log('[Cuckoo Code] 读取「项目进度」文件夹失败（忽略）: ' + (err && err.message));
+    }
     const onLoad = () => {
       try { wc.off('did-finish-load', onLoad); } catch (_) { /* ignore */ }
       setTimeout(async () => {

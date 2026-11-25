@@ -1,147 +1,126 @@
 /**
- * 项目进度文件夹：自动创建与默认模板
+ * 项目进度文件夹：自动创建、默认模板、注入提示词
  *
- * 用途：当"自动开启新对话"触发时，不压缩上下文，而是靠 `{项目目录}/项目进度/`
- * 下的文件承接上下文，让 AI 在长任务/大项目中保持连续性。
+ * [定制-flash v2 2026-11-24] 精简为「单状态文件」结构：
+ *   - 新对话开工 0 次读文件：RULES.md + STATUS.md 由 prompt-builder 自动注入系统提示词
+ *   - 收尾只覆盖 STATUS.md 一个文件 + 往 LOG.md 追加一行
  *
  * 结构：
  *   项目进度/
- *   ├── AI_CONTEXT.md   入口指令（告诉 AI 该读哪些文件、如何记录）
- *   ├── GOAL.md         任务总目标（原始需求 / 交付物 / 验收标准 / 整体进度）
- *   ├── PROGRESS.md     已完成事项（打勾 + 日期）
- *   ├── TODO.md         待办
- *   ├── DECISIONS.md    重要决策及原因
- *   └── 交接笔记/        每次对话结束的交接笔记（按日期命名）
+ *   ├── RULES.md      进度规则（自动注入；可按项目修改）
+ *   ├── STATUS.md     当前状态（自动注入；AI 收尾时整份覆盖，≤ 80 行）
+ *   ├── GOAL.md       原始需求 / 交付物 / 验收标准 / 不做什么（需要时才读）
+ *   ├── DECISIONS.md  重要决策，每条一行（需要时才读）
+ *   └── LOG.md        工作流水，只追加不读
+ *
+ * 旧版文件（AI_CONTEXT.md / PROGRESS.md / TODO.md / 交接笔记/）不再创建，也不再被任何指令引用。
+ * 注意：本文件刻意不用模板字符串和反斜杠转义，换行统一用 NL。
  */
 import fs from 'node:fs';
 import path from 'node:path';
 
 export const PROGRESS_FOLDER_NAME = '项目进度';
 
-/** AI_CONTEXT.md 默认模板：入口指令 */
-const AI_CONTEXT_TEMPLATE = `# AI 上下文入口
+const NL = String.fromCharCode(10);
 
-> 本文件是给 AI 的**第一入口**。每次开新对话，AI 应先读本文件，再按下面指示读其它文件。
+/** 注入提示词时单个文件的最大字符数（系统提示词过长会被网页输入框静默截断） */
+const MAX_INJECT_CHARS = 6000;
 
-## 请 AI 按顺序执行（注意：只读关键信息，不要从头重新核对）
+/** RULES.md 默认模板：进度规则 */
+const RULES_TEMPLATE = [
+  '# 项目进度规则',
+  '',
+  '本规则和「当前状态」（项目进度/STATUS.md）在每次初始化时自动注入提示词，开工不需要再读它们。',
+  '',
+  '## 开工',
+  '- 直接从「当前状态」的「下一步」开始干；用户本轮给了新任务，则以新任务为最高优先级。',
+  '- 已勾选的里程碑、已从待办删除的事一律信任：不复查、不重跑测试、不通读代码和文档。',
+  '- 按需才读：需求或验收标准不清 → GOAL.md；要做的选择以前可能做过 → DECISIONS.md；LOG.md 只写不读。',
+  '- 看代码先用 grep / glob 定位，再用 read 的 offset/limit 只读相关行段，不整文件通读。',
+  '- 「当前任务」和「待办」都为空、且用户没给任务：简述现状并等待指令，不要自己找活、不要扫描项目。',
+  '',
+  '## 防跑偏',
+  '- 只做「当前任务」「待办」里的事；冒出的新想法写进「待办」，不顺手做。',
+  '- 不碰「已挂起」，除非用户本轮明确要求。',
+  '- 与 GOAL.md「不做什么」冲突的事，先问用户。',
+  '- 同一方法失败 2 次：记入「已知的坑」，换思路或问用户，不要硬试。',
+  '',
+  '## 收尾（完成一项待办、用户说“收尾”、或收到【进度归档】指令时）',
+  '1. 用 write 整份覆盖 项目进度/STATUS.md：≤ 80 行，保持原有标题结构；完成的待办直接删除（不留勾，不另建已完成列表）。',
+  '2. 往 项目进度/LOG.md 追加一行（不要先读它）：- YYYY-MM-DD 完成了什么（涉及哪些文件）',
+  '3. 有重要选择才往 项目进度/DECISIONS.md 追加一行：- YYYY-MM-DD【标题】选 X 不选 Y，因为…',
+  "4. 追加方法：pwsh 执行 Add-Content -LiteralPath '项目进度/LOG.md' -Encoding UTF8 -Value '一行文字'（文字里不要带单引号；DECISIONS.md 同理）",
+  '5. 总目标确实变了才改 GOAL.md；不写交接笔记。',
+  '6. 回复末尾输出一行：【进度】✅ 本次完成：… ｜ ▶ 下一步：… ｜ ⚠ 需用户处理：…（没有就写“无”）',
+  '',
+].join(NL);
 
-1. **先读 \`交接笔记/\` 里最新的一份**（日期最大）—— 这里写了**上次做到哪、下一步做什么、踩过哪些坑**，是最省时的入口
-2. 读 \`GOAL.md\` 的"整体进度"和 \`TODO.md\` —— 只了解**整体轮廓和待办**，不用逐条展开
-3. **信任这些记录，不要重新验证已打勾的完成项**（例如不要重新跑一遍已完成的测试、不要重新检查已改好的文件）。除非你怀疑记录有误，否则直接采信
-4. **任务优先级**：找到 \`TODO.md\` 中标记为 \`[进行中]\` 或 \`[待办]\` 的任务继续干；**绝对不要**去碰 \`[已挂起]\` 的任务，除非用户当前对话明确要求恢复它。
-5. 若 TODO.md 已空、且 GOAL.md 整体进度全部勾完，**停下并明确告诉用户"任务已全部完成"**
-
-> ⚡ 效率要求：新对话的目标是"接着干"，不是"复盘重来"。已完成的工作一律信任，把时间花在未完成的事上。
-
-## 干活过程中的记录规则
-
-- 完成一项任务 → 从 \`TODO.md\` 中**删除或勾选**该项（绝对不能把已完成项留在 TODO 里），并追加到 \`PROGRESS.md\`（加日期）
-- 做了重要选择 → 把"为什么这么选"记到 \`DECISIONS.md\`
-- 冒出新待办 → 加到 \`TODO.md\`，标记为 \`[待办]\`
-- 用户要求暂缓/放弃某任务 → 在 \`TODO.md\` 中标记为 \`[已挂起]\` 并写明原因
-- 发现总目标有变化 → 更新 \`GOAL.md\`
-
-## 【任务收尾与汇报纪律】（极为重要）
-
-每当你完成用户交代的一项具体任务，在结束本轮回复前，**必须**在聊天框输出以下标准格式的汇报：
-\`\`\`
-【项目进度汇报】
-✅ 本次完成：[简述刚才完成的核心工作]
-📊 当前整体状态：
-  - 已完成：X 项（参考 PROGRESS.md）
-  - 进行中：Y 项（参考 TODO.md）
-  - 已挂起：Z 项（若有）
-💡 下一步建议：[给出 1-2 个下一步行动建议，或提醒用户需要手动的验收项]
-\`\`\`
-
-## 每次对话结束前（最重要）
-
-更新 \`GOAL.md\`（整体进度勾选）、\`PROGRESS.md\`、\`TODO.md\`，并在 \`交接笔记/\` 下按模板写一份
-\`交接笔记/YYYY-MM-DD.md\`，重点写：
-
-- 关键改动
-- 踩的坑
-- 试过没用的方案
-- 下一步建议
-`;
+/** STATUS.md 默认模板：当前状态 */
+const STATUS_TEMPLATE = [
+  '# 当前状态（AI 收尾时整份覆盖；≤ 80 行；完成的待办直接删除）',
+  '',
+  '更新时间：YYYY-MM-DD',
+  '',
+  '## 一句话目标（详见 GOAL.md）',
+  '- ',
+  '',
+  '## 里程碑',
+  '- [ ] M1 ',
+  '',
+  '## 当前任务',
+  '- 正在做：',
+  '- 做到哪了：',
+  '- 下一步（具体到文件/函数）：',
+  '',
+  '## 待办',
+  '- [ ] ',
+  '',
+  '## 已挂起',
+  '- （任务 —— 原因）',
+  '',
+  '## 已知的坑 / 试过没用的方案（长期保留，过时才删）',
+  '- ',
+  '',
+  '## 项目速查',
+  '- 技术栈：',
+  '- 运行 / 测试命令：',
+  '- 关键文件：路径 —— 作用',
+  '',
+].join(NL);
 
 /** GOAL.md 默认模板：任务总目标 */
-const GOAL_TEMPLATE = `# 任务总目标
-
-> 本文件记录**最开始的任务是什么**。每次开新对话，AI 应先读本文件，
-> 搞清楚"我们到底在做什么、要做到什么程度"，再看进度。
-
-## 原始需求
-
-<!-- 把用户最开始提的完整需求记在这里，尽量一字不差 -->
-
-## 最终交付物
-
-<!-- 做完之后应该是什么样子 -->
-
-## 验收标准
-
-<!-- 怎么判断真的完成了（可勾选） -->
-- [ ] 
-
-## 整体进度
-
-<!-- 把任务拆成模块/阶段，完成一个勾一个 -->
-- [ ] 
-`;
-
-/** PROGRESS.md 默认模板 */
-const PROGRESS_TEMPLATE = `# 进度记录
-
-> 记录**已完成**的工作。每完成一项就打勾并加日期，格式：\`- [x] 事项（YYYY-MM-DD）\`
-
-## 已完成
-
-<!-- 在这里追加已完成事项 -->
-`;
-
-/** TODO.md 默认模板 */
-const TODO_TEMPLATE = `# 待办事项
-
-> 记录**当前未完成**的任务。已完成的任务必须移到 PROGRESS.md，**绝对不允许留在这里**。
-
-## 待办列表
-
-<!-- 
-必须使用以下三种状态标签之一：
-- [ ] [进行中] 任务描述
-- [ ] [待办] 任务描述
-- [ ] [已挂起] 任务描述 (原因：xxx)
--->
-`;
+const GOAL_TEMPLATE = [
+  '# 任务总目标（需求或验收标准不清时才读）',
+  '',
+  '> 记录最开始那个完整目标，不要用后续零散的选择/确认去覆盖它；方案选择记到 DECISIONS.md。',
+  '',
+  '## 原始需求（尽量一字不差）',
+  '',
+  '',
+  '## 最终交付物',
+  '',
+  '',
+  '## 验收标准',
+  '- [ ] ',
+  '',
+  '## 不做什么（范围边界，防跑偏）',
+  '- ',
+  '',
+].join(NL);
 
 /** DECISIONS.md 默认模板 */
-const DECISIONS_TEMPLATE = `# 重要决策记录
+const DECISIONS_TEMPLATE = [
+  '# 重要决策（需要做选择时才读；每条一行）',
+  '',
+  '格式：- YYYY-MM-DD【标题】选 X 不选 Y，因为…',
+  '',
+].join(NL);
 
-> 记录重要的技术/设计选择，以及"为什么这么选"。
-
-## 决策列表
-
-<!-- 格式：
-## YYYY-MM-DD 决策标题
-- 背景：
-- 选项：
-- 决定：
-- 原因：
--->
-`;
-
-/** 交接笔记示例模板（仅用于首次创建时的说明，不强制生成具体文件） */
-const HANDOFF_README = `# 交接笔记
-
-> 每次对话结束前，在这里按日期新建一份笔记，例如 \`2026-10-03.md\`。
-
-模板要点：
-- 关键改动
-- 踩的坑
-- 试过没用的方案
-- 下一步建议
-`;
+/** LOG.md 默认模板 */
+const LOG_TEMPLATE = [
+  '# 工作流水（只追加，AI 平时不读）',
+  '',
+].join(NL);
 
 interface EnsureResult {
   /** 进度文件夹的绝对路径 */
@@ -155,7 +134,7 @@ interface EnsureResult {
 /**
  * 确保项目目录下存在「项目进度」文件夹及其文件。
  * 已存在的文件不覆盖（保护用户已有内容）。
- * @param projectDir 项目根目录（如 D:\\Mirserver）
+ * @param projectDir 项目根目录
  */
 function ensureProgressFolder(projectDir: string): EnsureResult {
   if (!projectDir || !projectDir.trim()) {
@@ -165,19 +144,17 @@ function ensureProgressFolder(projectDir: string): EnsureResult {
   const createdFiles: string[] = [];
   let created = false;
 
-  // 1) 文件夹
   if (!fs.existsSync(folder)) {
     fs.mkdirSync(folder, { recursive: true });
     created = true;
   }
 
-  // 2) 各文件（存在则跳过）
   const files: Array<{ name: string; content: string }> = [
-    { name: 'AI_CONTEXT.md', content: AI_CONTEXT_TEMPLATE },
+    { name: 'RULES.md', content: RULES_TEMPLATE },
+    { name: 'STATUS.md', content: STATUS_TEMPLATE },
     { name: 'GOAL.md', content: GOAL_TEMPLATE },
-    { name: 'PROGRESS.md', content: PROGRESS_TEMPLATE },
-    { name: 'TODO.md', content: TODO_TEMPLATE },
     { name: 'DECISIONS.md', content: DECISIONS_TEMPLATE },
+    { name: 'LOG.md', content: LOG_TEMPLATE },
   ];
   for (const f of files) {
     const p = path.join(folder, f.name);
@@ -188,29 +165,58 @@ function ensureProgressFolder(projectDir: string): EnsureResult {
     }
   }
 
-  // 3) 交接笔记子目录
-  const handoffDir = path.join(folder, '交接笔记');
-  if (!fs.existsSync(handoffDir)) {
-    fs.mkdirSync(handoffDir, { recursive: true });
-    const readme = path.join(handoffDir, 'README.md');
-    if (!fs.existsSync(readme)) fs.writeFileSync(readme, HANDOFF_README, 'utf-8');
-    created = true;
-  }
-
   return { folder, created, createdFiles };
 }
 
-/** 生成"先读进度文件"的指令（追加到系统提示词末尾） */
-function buildProgressInstruction(projectDir: string): string {
-  const folder = path.join(projectDir, PROGRESS_FOLDER_NAME);
-  return '先读 ' + path.join(folder, 'AI_CONTEXT.md') + '，并严格按里面的指示执行。' +
-    '要点：先读『交接笔记/』里最新一份了解上次到哪、下一步做什么；' +
-    '再扫一眼 GOAL.md 的整体进度和 TODO.md 的待办。**不要全文通读 PROGRESS.md**，它只用于遇到疑问时检索。' +
-    '**信任记录**：已完成项不要重做；看到 [已挂起] 的任务绝对不要主动碰，除非用户当前有明确要求。' +
-    '然后直接从 TODO.md 中找 [进行中] 或 [待办] 的任务继续干活，不要停下来等我确认；' +
-    '若用户在当前对话发布了新任务，请把新任务作为最高优先级并标记为 [进行中]。' +
-    '每完成一项任务，必须输出【项目进度汇报】。';
+/** 读文件用于注入：去 BOM、去首尾空白、超长截断；失败返回空串 */
+function readCapped(filePath: string): string {
+  try {
+    if (!fs.existsSync(filePath)) return '';
+    let text = fs.readFileSync(filePath, 'utf-8');
+    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+    text = text.trim();
+    if (text.length > MAX_INJECT_CHARS) {
+      text = text.slice(0, MAX_INJECT_CHARS) + NL + '…（已截断：该文件超过 ' + MAX_INJECT_CHARS + ' 字符，请在收尾时精简）';
+    }
+    return text;
+  } catch (_) {
+    return '';
+  }
 }
 
-export { ensureProgressFolder, buildProgressInstruction };
+/**
+ * 生成注入系统提示词的「## 项目进度」章节（RULES.md + STATUS.md）。
+ * 仅当 项目进度/STATUS.md 存在时生效，否则返回空串（不影响未使用本功能的项目）。
+ */
+function buildProgressSection(projectDir: string | null | undefined): string {
+  if (!projectDir || !String(projectDir).trim()) return '';
+  const folder = path.join(String(projectDir), PROGRESS_FOLDER_NAME);
+  const statusPath = path.join(folder, 'STATUS.md');
+  if (!fs.existsSync(statusPath)) return '';
+  const rules = readCapped(path.join(folder, 'RULES.md'));
+  const status = readCapped(statusPath);
+  const parts: string[] = [
+    '---',
+    '## 项目进度（自动注入，开工无需再读这些文件）',
+    '',
+    '进度文件夹：' + folder,
+    '',
+  ];
+  if (rules) parts.push('### 进度规则（来自 RULES.md）', '', rules, '');
+  parts.push('### 当前状态（来自 STATUS.md）', '', status || '（STATUS.md 为空）', '');
+  return parts.join(NL);
+}
+
+/** 生成自动开新对话后追加到系统提示词末尾的指令 */
+function buildProgressInstruction(projectDir: string): string {
+  const folder = path.join(projectDir, PROGRESS_FOLDER_NAME);
+  return '【自动开启的新对话】上一对话因上下文过长已结束，进度已归档到「项目进度」文件夹：' + folder + '。' +
+    '进度规则和当前状态已在系统提示词的「## 项目进度」章节中，不要再读 RULES.md / STATUS.md。' +
+    '请直接从「下一步」继续干活，不要停下来等我确认；已完成的不重做、不复查，「已挂起」的不碰。' +
+    '若用户在当前对话发布了新任务，以新任务为最高优先级。' +
+    // [定制-flash] 无待办出口：否则空项目场景下「继续干活」会驱动 AI 自己找活
+    '若「当前任务」和「待办」都为空，说明当前无待办：直接告诉用户并等待指令，不要自己找活干。';
+}
+
+export { ensureProgressFolder, buildProgressInstruction, buildProgressSection };
 export type { EnsureResult };

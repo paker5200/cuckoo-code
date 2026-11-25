@@ -117108,6 +117108,15 @@ body {
         SettingRow,
         { label: "\u8D85\u65F6\u91CD\u8BD5\u6B21\u6570", desc: "\u8D1F\u6570 = \u65E0\u9650\u91CD\u8BD5" },
         (0, import_react7.createElement)("input", { type: "number", className: "ck-set-input ck-set-input-sm", step: 1, value: numVal("watchdogCount"), onChange: (e2) => setField("watchdogCount", parseInt(e2.target.value, 10) || 0) })
+      ),
+      // [定制-flash] 持续执行：本轮提醒 + 空闲自动唤醒（默认只对 ChatGPT 生效，
+      // 其他平台可改 localStorage cuckoo-round-reminder-providers / cuckoo-auto-wake-providers 打开）
+      (0, import_react7.createElement)(ToggleRow, { label: "\u6BCF\u8F6E\u6267\u884C\u63D0\u9192", desc: "\u6BCF\u8F6E\u5DE5\u5177\u7ED3\u679C\u56DE\u4F20\u540E\u63D0\u9192 AI \u7ACB\u5373\u7EE7\u7EED\uFF0C\u4E0D\u8981\u5728\u4E2D\u95F4\u505C\u4E0B\uFF08\u4EC5 ChatGPT \u751F\u6548\uFF09", checked: data.autoReminderEnabled !== false, onChange: (v) => setField("autoReminderEnabled", v) }),
+      (0, import_react7.createElement)(ToggleRow, { label: "\u7A7A\u95F2\u81EA\u52A8\u5524\u9192", desc: "AI \u505C\u6B62\u8F93\u51FA\u540E\u81EA\u52A8\u5524\u9192\u7EE7\u7EED\u5DE5\u4F5C\uFF08\u4EC5 ChatGPT \u751F\u6548\uFF1B\u8FDE\u7EED 3 \u6B21\u6CA1\u7EE7\u7EED\u4F1A\u81EA\u52A8\u505C\u6B62\uFF0C\u907F\u514D\u7A7A\u8F6C\uFF09", checked: data.autoWakeEnabled !== false, onChange: (v) => setField("autoWakeEnabled", v) }),
+      (0, import_react7.createElement)(
+        SettingRow,
+        { label: "\u5524\u9192\u5EF6\u8FDF\uFF08\u79D2\uFF09", desc: "AI \u505C\u4E0B\u591A\u4E45\u540E\u5524\u9192\uFF0C\u9ED8\u8BA4 90 \u79D2" },
+        (0, import_react7.createElement)("input", { type: "number", className: "ck-set-input ck-set-input-sm", min: 1, step: 1, value: numVal("autoWakeDelay"), onChange: (e2) => setField("autoWakeDelay", parseInt(e2.target.value, 10) || 0) })
       )
     );
     const sendDelay = (0, import_react7.createElement)(
@@ -119070,7 +119079,7 @@ body {
             const d = r && r.data || {};
             if (d.progressFolder) {
               await ckAlert(
-                (d.progressCreated ? "\u5DF2\u521B\u5EFA\u300C\u9879\u76EE\u8FDB\u5EA6\u300D\u6587\u4EF6\u5939\uFF1A\n" : "\u300C\u9879\u76EE\u8FDB\u5EA6\u300D\u6587\u4EF6\u5939\u5DF2\u5B58\u5728\uFF1A\n") + d.progressFolder + "\n\n\u7B49\u4F60\u53D1\u5E03\u4EFB\u52A1\u540E\uFF0CAI \u4F1A\u81EA\u52A8\u628A\u603B\u76EE\u6807\u5199\u8FDB GOAL.md\uFF0C\u5E76\u6301\u7EED\u66F4\u65B0 PROGRESS.md / TODO.md \u7B49\u8FDB\u5EA6\u6587\u4EF6\u3002",
+                (d.progressCreated ? "\u5DF2\u521B\u5EFA\u300C\u9879\u76EE\u8FDB\u5EA6\u300D\u6587\u4EF6\u5939\uFF1A\n" : "\u300C\u9879\u76EE\u8FDB\u5EA6\u300D\u6587\u4EF6\u5939\u5DF2\u5B58\u5728\uFF1A\n") + d.progressFolder + "\n\n\u7B49\u4F60\u53D1\u5E03\u4EFB\u52A1\u540E\uFF0CAI \u4F1A\u81EA\u52A8\u628A\u603B\u76EE\u6807\u5199\u8FDB GOAL.md\uFF0C\u5E76\u5728\u6BCF\u5B8C\u6210\u4E00\u9879\u65F6\u66F4\u65B0 STATUS.md\uFF08\u65B0\u5BF9\u8BDD\u4F1A\u81EA\u52A8\u6CE8\u5165\u5B83\uFF0C\u65E0\u9700\u518D\u8BFB\uFF09\u3002",
                 "\u81EA\u52A8\u5F00\u542F\u65B0\u5BF9\u8BDD\u5DF2\u542F\u7528"
               );
             } else if (d.progressHint) {

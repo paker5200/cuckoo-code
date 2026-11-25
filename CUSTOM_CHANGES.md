@@ -10,14 +10,14 @@
 | 项 | 值 |
 |---|---|
 | 定制版名称 | Cuckoo Code Flash |
-| 基于上游版本 | 0.8.18（已合并） |
+| 基于上游版本 | 0.8.22（已合并） |
 | 起点锚点 tag | flash-v0.8.7（**永远不动**，记录最初从哪个上游版本分叉） |
-| 当前基线 tag | flash-v0.8.18（**每次合并上游后更新**，指向本次合并+修复完成的提交） |
+| 当前基线 tag | flash-v0.8.22（**每次合并上游后更新**，指向本次合并+修复完成的提交） |
 | 定制开发分支 | flash-dev |
 | 上游仓库 | https://github.com/wangyongpeng90/cuckoo-code |
-| 上游最新版本 | 0.8.18（已合并） |
+| 上游最新版本 | 0.8.22（已合并）；master 另有 11 个**未发版**提交（剪贴板粘贴修复 / usage-stats 竞态 / Electron 升级），尚未合并 |
 | 本 fork 仓库 | https://github.com/paker5200/cuckoo-code |
-| 定制目的 | ①新增"自动开启新对话"上下文策略 ②改名为独立应用，与原版并存 |
+| 定制目的 | ①新增"自动开启新对话"上下文策略 ②改名为独立应用，与原版并存 ③新增 ChatGPT「持续工作」机制 |
 
 > **tag 策略说明**：
 > - `flash-v0.8.7` = 起点锚点，永远不动。回答"从哪个版本开始分叉"。
@@ -94,6 +94,112 @@
 - 可与原版 Cuckoo Code 同时安装、同时运行
 - 自动更新源改为本 fork (paker5200/cuckoo-code)
 
+### 功能 3：ChatGPT「持续工作」机制（解决 AI 干一会儿就停）
+
+> **问题**：ChatGPT 上 AI 每干完一步就输出纯文本收尾、等用户贴结果，任务无法连续推进。
+> 上游自带的 `watchdog`（只看 SSE 流静默 5 分钟）和 `retry`（只处理报错/429）都覆盖不到
+> 「正常结束回合」这种停法，所以需要单独的机制。
+
+三件套（**默认只对 ChatGPT 生效**，其他平台需在设置页勾选或改白名单才启用）：
+
+1. **每轮执行提醒**：每次工具结果回传的消息末尾追加一段固定文案，要求「未完成就输出下一个
+   cuckoo 代码块、失败就修正重试、有进展顺手更新项目进度、汇报之后不许停在汇报上」。
+2. **空闲自动唤醒**：AI 停止输出后 90 秒（可配）自动注入一条「自动唤醒·随机ID」探针，
+   要求先 `log('WAKE_UP_PROBE:xxx')` 证明没卡住，再继续之前的工作。
+   - 连续 3 次唤醒后 AI 仍未输出 cuckoo 代码块 → 自动停用（避免空转烧 token）
+   - AI 回复含「所有任务已完成」→ 立即停用
+   - 最多连续唤醒 20 次（可配，-1 = 无限）→ 达上限自动停
+   - 用户真实点击/按键 → 重置全部计数与停用状态
+   - 切会话 / 新对话（sessionId 变化，含变 null）→ 取消待发探针并重置计数
+
+配置键（localStorage）：
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `cuckoo-round-reminder-enabled` | 未设置 = 开 | `'0'` 关闭本轮提醒 |
+| `cuckoo-round-reminder-providers` | `chatgpt` | 生效平台白名单（逗号分隔） |
+| `cuckoo-auto-wake-enabled` | `'1'` | 自动唤醒总开关 |
+| `cuckoo-auto-wake-providers` | `chatgpt` | 生效平台白名单 |
+| `cuckoo-auto-wake-delay` | `'90'`（秒） | 空闲多久后唤醒 |
+| `cuckoo-auto-wake-max` | `'20'` | 最多连续唤醒次数，`-1` = 无限 |
+
+设置页位置：设置 → 自动重试卡片内，「超时重试次数」下方三个控件。
+
+#### ⚠️ 两个实现要点（改动时务必保留）
+
+1. **`markFrameworkDriving` 时间窗是这套机制的命门**。
+   框架自己发消息走 `sendInputEvent`，产生的是 `isTrusted=true` 的真实 DOM 事件，
+   与用户手动点击无法用 `isTrusted` 区分。若不加时间窗，**每次框架发消息都会把唤醒计数清零**，
+   导致「连续 3 次停用」和「20 次上限」永不触发 → 无限唤醒。
+2. **5 秒入口窗口 + provider 逐轮续期，两者缺一不可**。
+   `framework-driving.ts` 默认 5 秒只覆盖同步兜底；ChatGPT 的 `triggerSend` 是 10 轮 × 600ms
+   ≈ 6 秒，必须靠 `providers/chatgpt.ts` 里**每轮 attempt 前 `markFrameworkDriving(2000)`**
+   （`:125`）和兜底 click 前那次（`:163`）滚动续期。
+   **删掉或调小这两处续期，P0 立刻回归。**
+
+#### ⚠️ 任务边界（避免"为了不停而不停"）
+
+三件套会形成很强的"必须继续"推力。**如果没有边界，AI 在没有任务时也会自己找活干**
+（真实事故：选了个空文件夹初始化，AI 扫完发现是空项目，就逐级向上扫
+`F:\chatgpt\空项目` → `F:\chatgpt` → `F:\` 盘根，停不下来）。
+
+所以**三个入口必须同时带边界，缺一个就会被另一个推翻**：
+
+| 入口 | 边界写法 | 位置 |
+|---|---|---|
+| 每轮执行提醒 | 停止条件双出口：① 完成判据全满足 ② 用户**本轮**尚未提出具体任务 | `chat-input.ts` `buildRoundReminder()` |
+| 自动唤醒探针 | **第 0 步先判定再分支**：「没有→只回一行『所有任务已完成』并『到此结束，不要读下面的内容』」；「有→第 1 步证明 + 第 2 步继续」 | `events.ts` `buildWakeUpMessage()` |
+| 初始化提示词 | 空目录是合法状态；禁止为找项目而向上级目录/盘符根目录搜索 | `prompt/chatgpt.md` 的「空白项目与访问边界」 |
+| 压缩/进度开新对话 | 末尾「请继续你之前的工作」后加条件后缀（无任务/无待办则说明现状并等待） | `prompt-builder.ts` 的 `isCompaction` 分支 |
+| 进度指令 | 「继续干活，不要停下来等我确认」后加「若 TODO 无 [进行中]/[待办] 则告知用户并等待」 | `project-progress.ts` `buildProgressInstruction()` |
+| 失败自动重试 | 用 `buildContinueMessage()`（在 continue prompt 后拼"无任务则只回『所有任务已完成』"后缀）；**watchdog 不用**（它在你干活时触发，加出口会让你提前收工） | `continue-prompt-pool.ts` + `retry.ts` |
+| **任务范围**（★最重要） | 用户说"分析/看下/说明"时**交付结论，不改文件**；除非明确说"修/改/实现/优化"，否则不得写入；发现问题只给「位置+建议改法+风险」等确认 | `chatgpt.md`「只做用户要求的那一件事」+ `chat-input.ts` 提醒独立 bullet + `events.ts` 探针前置自检 |
+| **受阻停下**（运行时协议） | 停之前必须自证「同一方法连续 3 次无实质进展」（不足 3 条不许停、有未试路径也不许停、预判失败不算一次），并第一行输出 `【受阻停下】`；状态机认这个字面 → 立即停用唤醒 + 弹 toast | `chat-input.ts` 第③条 / `chatgpt.md`「受阻也要停」/ `events.ts` 探针第三分支 + `handleResponseForAutoWake` |
+
+> **探针的结构演进（别再改回去）**：最初是「无条件祈使句『直接接着做』在前 + 例外句『仅当你没有任务…』在后」，
+> 模型会照前一句执行，空项目下照样自己去扫盘。现在改成第 0 步判定 → 分支，
+> 且「所有任务已完成」在整条探针消息里**只出现 1 次**（`handleResponseForAutoWake` 靠该字面立即停用）。
+> 测试断言锁了：判定在「直接接着做」之前、字面唯一性、旧收尾句已删。
+
+**改其中任何一处时，另外两处必须同步复核**——单改一处等于没改（尤其别漏探针：
+它是 90 秒后才生效的"第三只手"，最容易在验收时被忽略）。
+
+#### 与「项目进度」体系的关系（重要）
+
+- 本机制**不引入** `updateState` 之类的新状态工具，避免与「项目进度」文件夹双写。
+- 提醒文案里只让 AI「顺手更新 TODO.md / PROGRESS.md」，状态权威源仍是那套文件。
+- ChatGPT 不下发累积 token（`accumulatedTokens` 恒为 `null`），所以 `checkAutoCompact()`
+  在 ChatGPT 上**永不触发**「自动开启新对话」。为此另做了两件事补偿：
+  - 每轮提醒里带「有进展就更新进度文件」，保证文件平时就是新鲜的；
+  - 上下文真正耗尽走 `context-exhausted-continue` 时，**追加「先读 项目进度/AI_CONTEXT.md」**
+    的指令，避免新会话失忆（这是 ChatGPT 上真正换会话的路径）。
+
+#### 已知遗留（下次动这块时一并处理）
+
+1. `project-progress.ts` 的 `buildProgressInstruction()` 出口**零测试覆盖**——`test/` 下没有该模块的测试文件，
+   删掉那句出口没有任何测试会红。（补 8 行用例即可，但**测试文件会进 asar**，所以别在打包期间加。）
+2. `events.ts` 里 `buildWakeUpMessage()` 的**注释**中还留着旧文案字面（「如果你已经完成了所有工作」），
+   仅注释、不影响运行时；但将来若写"grep 源码"式断言会误判。
+3. `package.json` 的 `build.files` 缺 `!test` → **整个 `test/` 目录（约 745K / 106 个文件）一直被打进 asar**。
+   属既有打包卫生问题，不是本次引入。要修必须单独跑一次完整打包+启动验证。
+4. `continue-prompt-pool.ts` 的 1000 条继续提示词**全都没有"无任务"出口**。本次只在 `retry.ts` 和
+   「卡住了」按钮外面包了 `buildContinueMessage()` 加后缀，池子本身没动。
+   `watchdog.ts`、`observer.ts`（两处）仍是裸 `pickContinuePrompt()`，未加出口。
+5. **门槛对「缺信息」类障碍是空转**：`连续 3 次无实质进展` 这个门槛，对"用户没给未压缩版本"这类
+   一次性可判定的障碍不适用（每次试的方法不同，凑不满 3 次同一方法）。改它要动整句结构。
+6. **任务范围目前只有文案约束**：要硬约束得在会话上标记 taskKind（分析类/修改类），
+   分析类对 `write/edit` 走人工确认。属产品决策，未做。
+
+#### ⚠️ 这三条是本模块的"契约"，改动时必须三处同步
+
+任何一处单独改都会让另外两处把它推翻（历史事故：只改了提示词和提醒，漏了探针，90 秒后又被踢回穷举扫描）：
+
+1. **`【受阻停下】` 必须三处都有**（`chat-input.ts` 第③条、`chatgpt.md`、`events.ts` 探针第三分支），
+   且**字面完全一致**（不能有「【受阻停止】」这类变体），否则状态机 `indexOf` 匹配不到，AI 停了也会被再催 3 次。
+2. **门槛必须用「且」**：`技术障碍**且**同一方法连续 3 次无实质进展`。写成顿号平列（或）会让 3 次门槛形同虚设——
+   命中"代码被压缩无法定位"一条就能停。测试里有跨文件一致性断言锁这个。
+3. **提醒里的「一律继续」必须带「且不属于第 ③ 种情况」**，否则会盖掉第 ③ 出口。
+
 ---
 
 ## 三、逐文件改动清单
@@ -102,19 +208,76 @@
 
 ### 🟢 新增文件（上游不会有，永不冲突，合并时保留即可）
 
+- **src/infra/framework-driving.ts**（★v0.8.22 起，「持续工作」机制的命门）
+  极简叶子模块（无任何 import，避免 `chat-input → providers/registry → providers/chatgpt → chat-input` 回环）。
+  导出 `markFrameworkDriving(ms=5000)` / `isFrameworkDriving()` / `resetFrameworkDriving()`。
+  状态挂在 `globalThis.__ckFrameworkDrivingUntil`，多份模块图共享同一实例。
+  `mark` 语义为**只延长不缩短**（`if (until > 当前值)`），因此 provider 的 2 秒续期不会把入口窗口写小。
+  ⚠️ 如果上游新增了"能区分合成事件与真实事件"的 API，可以改用那个，届时本模块可删。
+
+- **test/overlay/auto-wake-reminder.test.js**（新增测试，20 例）
+  覆盖：提醒文案/白名单/开关、唤醒配置默认值、状态机四条路径、`scheduleAutoWake` 四个守卫、
+  会话切换（含 sessionId 变 null）、投递失败重试、框架驱动窗口、以及**真驱动 `chatgpt.triggerSend`
+  10 轮循环**验证逐轮续期确实生效。
+  其中「框架驱动期间不重置计数」和「真驱动续期」两条是关键回归保护，删守卫/删续期时必须失败。
+
 - **src/session/project-progress.ts**
   新增模块。负责创建「项目进度」文件夹 + 默认模板（AI_CONTEXT.md / GOAL.md / PROGRESS.md / TODO.md / DECISIONS.md / 交接笔记/），
   导出 ensureProgressFolder() 和 buildProgressInstruction()。
   注意：GOAL.md（任务总目标）是为了让 AI 在多次开新对话后仍记得最初任务、并能判断是否全部完成。
   AI_CONTEXT.md 模板里规定了记录规则：完成功能→PROGRESS.md，重要选择→DECISIONS.md，新待办→TODO.md，目标变化→GOAL.md。
+  **v0.8.22 起**：AI_CONTEXT 模板的「任务收尾与汇报纪律」段末尾加了一句引用块
+  「汇报之后若任务仍未完成，必须继续输出 cuckoo 代码块推进，不得停在汇报上」——
+  保留每轮汇报的格式，但不让它变成机器停顿点。
 
 ### 🟡 功能相关改动（上游若改了同一文件，需小心合并）
+
+- **src/overlay/chat-input.ts**（v0.8.22 起，「持续工作」相关）
+  - 顶部 import `markFrameworkDriving` from `../infra/framework-driving.js`
+  - `triggerSend()` **函数体第一行**调 `markFrameworkDriving()`（默认 5 秒）
+  - 新增 `readRoundReminderProviders()` / `shouldApplyRoundReminder()` / `buildRoundReminder()`
+  - `sendCombinedJsResultsToChat()` 在 `applyResultTransform(...)` 之后、`findInputArea()` 之前
+    追加 `if (shouldApplyRoundReminder()) msg += sep + sep + buildRoundReminder();`
+  - `SYSTEM_MSG_TAGS` 增加 `'自动唤醒'`（探针算系统消息，不当用户消息上报）
+  - 定制点：`markFrameworkDriving` 调用位置、三个提醒函数、SYSTEM_MSG_TAGS 那一项
+
+- **src/prompt/chatgpt.md**（v0.8.22 起）
+  - 在 `### 错误处理` 之后、`## 当前项目目录` 之前新增 `## 持续执行纪律（重要）` 章节（6 条）。
+  - 在 `## 持续执行纪律` 之后、`## 当前项目目录` 之前**再新增** `## 空白项目与访问边界（重要）` 章节（4 条）：
+    声明「空目录是合法状态」、禁止为"找真正的项目"而向上级目录/盘符根目录/其它路径搜索、
+    判断是否继续的依据是"用户是否提出具体任务"而非"目录看起来没内容"。
+    **起因**：用户选了空文件夹初始化，AI 扫完空目录后逐级向上爬（`F:\chatgpt\空项目` → `F:\chatgpt` → `F:\`）。
+  - 同章节的 `## 持续执行纪律` 里，第 2 条与停止闸门都带上了「用户尚未提出具体任务」的例外回指
+    （否则「不许停」的三条规则会压过「可以停」的一条，模型按交集读会继续自己找活）。
+  - ⚠️ **只改 chatgpt.md**，不要改 `deepseek.md` / `claude.md` / `default.md` —— 其它平台行为保持不变。
+  - ⚠️ 若用户在设置页用「系统提示词模板」编辑过（存 SQLite），**SQLite 自定义模板优先级高于 md**
+    （`prompt-builder.ts` 的优先级 0），此时改 md 不生效，要改 SQLite 里的那份。
+
+- **src/providers/chatgpt.ts**（v0.8.22 起，★续期命门）
+  - 顶部 import `markFrameworkDriving`
+  - `triggerSend` 的 10 轮循环里，**每轮 attempt 首行** `markFrameworkDriving(2000)`
+  - 末尾兜底 `btn2.click()` 之前再 `markFrameworkDriving(2000)`
+  - ⚠️ 这两处是 5 秒入口窗口能撑过 6 秒循环的唯一原因，**删掉或调小 → 唤醒计数会被框架自身事件清零 → 无限唤醒**
+
+- **src/overlay/panels/settings.ts**（v0.8.22 起）
+  - `SettingsData` 新增 `autoReminderEnabled` / `autoWakeEnabled` / `autoWakeDelay` 三个字段
+  - `getSettingsData()` 读三个键、`applySettingsData()` 校验（延迟必须正整数）并按需写回、
+    `resetSettingsData()` 的 KEYS 追加三个键
+
+- **src/ui/shell/scripts/pages/settings-react.tsx**（v0.8.22 起）
+  - `retry` 卡片内、`超时重试次数` 之后追加 3 个控件（2 个 ToggleRow + 1 个数字输入），约 425-431 行
+  - ⚠️ 改完必须 `node scripts/build-shell.mjs` 重新生成 `src/ui/shell.html`
+  - 注意：`src/ui/shell/partials/pages/settings.html` **已不被加载**（设置页已 React 化），别改错文件
 
 - **src/app/ipc/session.ts**
   - 顶部新增 import：ensureProgressFolder, buildProgressInstruction from '../../session/project-progress.js'
   - 新增 IPC handler：'new-conversation-with-progress'（token 超阈值时用）
   - 新增 IPC handler：'ensure-progress-folder'（保存 new-chat 时仅建文件夹，不导航）
-  - 定制点：新增的两个 handler 块
+  - **v0.8.22 起新增**：`context-exhausted-continue` handler 里，组装完 `extraPrompt` 之后追加
+    「【进度上下文】…先读 AI_CONTEXT.md / 交接笔记 / GOAL.md / TODO.md」一段
+    （仅当 `项目进度` 文件夹存在时追加）。这是 ChatGPT 上真正换会话的路径，
+    **不追加这段，新会话必然失忆**（ChatGPT 无 token，走不到阈值触发的 new-chat）。
+  - 定制点：新增的两个 handler 块 + context-exhausted-continue 里的进度上下文段
 
 - **src/bridge/api.ts**
   - electronAPI 新增方法 newConversationWithProgress（调 IPC 'new-conversation-with-progress'）
@@ -145,6 +308,22 @@
   - startTokenCounter() 的 onTaskIdle 回调改为先 resolveTaskIdleWaiters()，
     再 maybeInjectProgressGuide()，最后 checkAutoCompact()
   - 定制点：所有含 contextMode / new-chat / 项目进度 / progress-guide / taskIdle 的逻辑
+  - **v0.8.22 起新增「空闲自动唤醒」整块**（约 632-900 行，`// ========== [定制-flash] 空闲自动唤醒 ==========`）
+    - `readAutoWakeConfig()`：读 4 个 localStorage 键，默认 `{enabled:true, providers:['chatgpt'], delayMs:90000, maxCount:20}`
+    - `scheduleAutoWake()`：记录 `autoWakeSessionId`，`setTimeout` 到点执行；四个守卫（未启用 / 已停用 / 平台不在白名单 / 达上限）
+    - 定时器回调：先重读配置并复核 provider 白名单，再校验 `getCurrentSessionId()` 与 arm 时是否一致
+      （**无条件比较 `sidNow !== autoWakeSessionId`**，任一侧为 null 也算变化），最后才 `injectWakeUpProbe()`
+    - `injectWakeUpProbe()`：发「【Cuckoo 自动唤醒·<id>】」探针，投递失败 30 秒后重试一次（不计数）
+    - `handleResponseForAutoWake()`：回复含「所有任务已完成」→ 立即停用；含 cuckoo → invalid 清零；
+      否则 invalid+1，累计 3 次停用
+    - `handleUserActivityForAutoWake()`：**首行 `if (isFrameworkDriving()) return;`**，用户真实操作才重置计数
+    - `onTaskIdle` 回调：开头 `cancelAutoWake()`，末尾 `if (!willNewChat) scheduleAutoWake()`
+    - `onInterceptedResponse` 回调：追加 `handleResponseForAutoWake(_text)`
+  - **v0.8.22 修复的两个既有缺陷**
+    - `maybeInjectProgressGuide()`：改为 `const ok = await sendToChat(...)`，失败时恢复 `setPendingProgressGuide`，
+      `markGuidedDir` 只在成功分支（原实现先清 pending，发送失败后**该目录永久不再引导**）
+    - `flushProgressThenNewChat()`：删掉虚假的「系统会校验文件时间戳」文案；
+      路径拼接改用本地 `joinFsPath()`（渲染进程不能 import `node:path`）
 
 - **src/overlay/panels/settings.ts**（修复上游遗留 bug）
   - applySettingsData()：goalMaxIterations 缺失时不再报错拦截，改为沿用当前存储值（默认 50）。
@@ -247,7 +426,7 @@
 
     # 5. 【关键】源码合并完后，重新生成 shell.html
     node scripts/build-shell.mjs
-    #    产物约 1.7MB（React 化后远大于旧的 200KB，正常）
+    #    产物约 5.26MB（v0.8.22 时实测 5,260,915 字节；内联了 monaco/echarts + 全量 CSS，正常）
     #    若报 Could not resolve "react" → 回到第 4 步
 
     # 6. 验证
@@ -287,6 +466,21 @@
    git 不报冲突，必须人工核对并补回 resolveTaskIdleWaiters / willNewChat 分支 / maybeInjectProgressGuide。
 5. **新增依赖**：react / react-dom / @types/react / @types/react-dom，合并后先 `npm install`。
 
+### ⚠️ v0.8.22 合并特别提醒（「持续工作」机制的命门）
+
+1. **`src/infra/framework-driving.ts` 是新增叶子模块**，上游不会有，保留即可。若上游新增了
+   能区分合成事件的方法，可考虑替换掉时间窗方案。
+2. **`providers/chatgpt.ts` 里两处 `markFrameworkDriving(2000)` 绝对不能丢**（循环每轮 + 兜底 click 前）。
+   上游若重写了 ChatGPT 的 `triggerSend`，必须把这两处补回去，否则唤醒计数会被框架自身事件清零
+   →「连续 3 次停用」和「20 次上限」全部失效 → 无限唤醒烧 token。
+3. **`events.ts` 的 `handleUserActivityForAutoWake` 首行守卫**（`if (isFrameworkDriving()) return;`）
+   同样不能丢。上游改 events.ts 时这里不会报冲突，必须人工核查。
+4. **设置页在壳页面 React（`settings-react.tsx`）**，不在 overlay。改完必须 `build-shell`。
+   `src/ui/shell/partials/pages/settings.html` 已废弃、不再被加载，别改错文件。
+5. **ChatGPT 没有 token 计数是上游事实**（`accumulatedTokens` 恒为 null），
+   所以 `checkAutoCompact()` 在 ChatGPT 上不触发是**预期行为**，不要当 bug 修。
+   进度接续靠「每轮提醒顺手更新进度文件」+「耗尽续接时补读 AI_CONTEXT」两条兜底。
+
 ---
 
 ## 五、冲突处理原则（重要）
@@ -296,7 +490,7 @@
 1. **功能保留**：你的"自动开启新对话"和"项目进度"相关改动（events.ts、project-progress.ts、session.ts 的 handler、token-react.tsx 的三选一）一律保留。
 2. **改名保留**：Flash 的名字、appId、SESSION_DIR、publish 指向 paker5200，一律保留。
 3. **上游新功能**：上游新增的功能代码，尽量接受。
-4. **version**：取上游的新版本号，不要卡在旧版（当前应为 0.8.18）。
+4. **version**：取上游的新版本号，不要卡在旧版（当前应为 0.8.22；若上游发新版则跟随）。
 5. **shell.html**：不对抗，合并后重新生成。
 
 不确定时，把冲突片段和本文件一起给 AI，让 AI 判断"这段是你的定制还是上游的更新"。
@@ -467,3 +661,13 @@ v0.8.18 中，上游将整个 UI 重构为 React，并使用了 Electron 的底�
 4. 发布是对外公开操作，确认无误再执行；发布后可删除（删 Release + 删远端 tag）。
 
 ---
+
+## [2026-11-24] 项目进度 v2：单状态文件 + 自动注入
+- project-progress.ts：模板改为 RULES / STATUS / GOAL / DECISIONS / LOG，不再创建 AI_CONTEXT / PROGRESS / TODO / 交接笔记；新增 buildProgressSection()
+- prompt-builder.ts：存在 项目进度/STATUS.md 时，把 RULES.md + STATUS.md 注入系统提示词末尾（单文件上限 6000 字符）
+- events.ts：归档指令、首次引导改为新文件结构
+- ipc/session.ts：context-exhausted-continue 的进度段改为“已注入，不要再读”，判断条件改为 STATUS.md 存在
+- chat-input.ts：每轮提醒改为完成待办时覆盖 STATUS.md + 追加 LOG.md
+- compaction.ts：交接提示在有「项目进度」时只做 git status 抽查，不通读项目
+- token-react.tsx / token.ts：设置页提示文案
+- 定制点：以上所有含 项目进度 / STATUS.md / RULES.md / buildProgressSection 的逻辑

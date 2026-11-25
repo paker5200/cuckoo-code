@@ -422,6 +422,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       createElement('input', { type: 'number', className: 'ck-set-input ck-set-input-sm', min: 0, step: 1, value: numVal('xhrIdleTimeout'), onChange: (e: any) => setField('xhrIdleTimeout', parseFloat(e.target.value) || 0) })),
     createElement(SettingRow, { label: '超时重试次数', desc: '负数 = 无限重试' },
       createElement('input', { type: 'number', className: 'ck-set-input ck-set-input-sm', step: 1, value: numVal('watchdogCount'), onChange: (e: any) => setField('watchdogCount', parseInt(e.target.value, 10) || 0) })),
+    // [定制-flash] 持续执行：本轮提醒 + 空闲自动唤醒（默认只对 ChatGPT 生效，
+    // 其他平台可改 localStorage cuckoo-round-reminder-providers / cuckoo-auto-wake-providers 打开）
+    createElement(ToggleRow, { label: '每轮执行提醒', desc: '每轮工具结果回传后提醒 AI 立即继续，不要在中间停下（仅 ChatGPT 生效）', checked: data.autoReminderEnabled !== false, onChange: (v) => setField('autoReminderEnabled', v) }),
+    createElement(ToggleRow, { label: '空闲自动唤醒', desc: 'AI 停止输出后自动唤醒继续工作（仅 ChatGPT 生效；连续 3 次没继续会自动停止，避免空转）', checked: data.autoWakeEnabled !== false, onChange: (v) => setField('autoWakeEnabled', v) }),
+    createElement(SettingRow, { label: '唤醒延迟（秒）', desc: 'AI 停下多久后唤醒，默认 90 秒' },
+      createElement('input', { type: 'number', className: 'ck-set-input ck-set-input-sm', min: 1, step: 1, value: numVal('autoWakeDelay'), onChange: (e: any) => setField('autoWakeDelay', parseInt(e.target.value, 10) || 0) })),
   );
 
   const sendDelay = createElement('div', { className: 'ck-card' },

@@ -16,6 +16,8 @@ import { getPluginScanRoots } from '../plugins/roots.js';
 import type { PluginScanRoots } from '../plugins/roots.js';
 // DSH 插件注册的提示词段（C4）
 import { getPromptSections as getDshPromptSections } from '../plugins/dsh-compat/prompt-sections.js';
+// [定制-flash] 项目进度 v2：自动注入 RULES.md + STATUS.md
+import { buildProgressSection } from './project-progress.js';
 
 // 提示词模板目录（D20：锚定应用根，与 dist 结构解耦）
 const PROMPT_DIR = resolveSrc('prompt');
@@ -242,9 +244,17 @@ function buildPrompt(opts: { providerId: string; selectedDir: string; isCompacti
   }
 
 
+  // [定制-flash] 项目进度 v2：存在 项目进度/STATUS.md 时注入「进度规则 + 当前状态」，新对话开工无需读文件
+  try {
+    const progressSection = buildProgressSection(selectedDir);
+    if (progressSection) combined += String.fromCharCode(10).repeat(2) + progressSection;
+  } catch (_) { /* ignore */ }
+
   // 压缩后初始化：末尾追加提示，让 AI 接着之前的工作继续
   if (isCompaction) {
-    combined += '\n\n---\n\n请继续你之前的工作';
+    // [定制-flash] 这句在系统提示词最末尾，recency 上会压过 chatgpt.md 的
+    // 「空白项目与访问边界」，故必须自带"无任务"出口，否则空项目场景又被催着找活。
+    combined += '\n\n---\n\n请继续你之前的工作（若用户尚未提出任何具体任务，或 TODO 中已无待办，则如实说明当前为空/已全部完成并等待指令，不要去找项目、不要向上级目录或盘符根目录搜索）';
   }
 
   return { prompt: combined };

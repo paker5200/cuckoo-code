@@ -14,7 +14,7 @@
  * 提示词来自统一池（infra/continue-prompt-pool.ts），不再单独配置。
  */
 import { sendToChat } from '../../overlay/chat-input.js';
-import { pickContinuePrompt } from '../../infra/continue-prompt-pool.js';
+import { buildContinueMessage } from '../../infra/continue-prompt-pool.js';
 import { onAiError, onInterceptedResponse } from '../intercept/observer.js';
 import { showToast } from '../../overlay/panel.js';
 import { withLog } from '../../infra/with-log.js';
@@ -181,7 +181,9 @@ let handleError = function handleError(detail: any): void {
     if (pending && pending.countdownTimer) clearInterval(pending.countdownTimer);
     pending = null;
     try {
-      sendToChat(pickContinuePrompt(), is429 ? '重试(操作频繁)' : '重试', 300);
+      // [定制-flash] 用带"无任务则收工"出口的版本：请求失败自动重试时若 AI 本就没任务，
+      // 裸的「接着干」会驱动它去翻上级目录/盘符根目录。
+      sendToChat(buildContinueMessage(), is429 ? '重试(操作频繁)' : '重试', 300);
     } catch (e: any) {
       console.error('[Cuckoo Code][重试] 发送提示词失败: ' + e.message);
     }

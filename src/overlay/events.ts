@@ -7,13 +7,15 @@ import { state } from './state.js';
 import { hideOverlay, showOverlay, renderHistory, commandHistory, showToast, hideFirstTimeDialog } from './panel.js';
 import { handleInitProject, renderSessions } from './session-list.js';
 import { sendToChat } from './chat-input.js';
+// [定制-flash] 框架驱动时间窗：判断"页面上的点击/按键是否来自框架自身"（叶子模块）
+import { isFrameworkDriving } from '../infra/framework-driving.js';
 import { runCompaction, checkPendingCompact, checkPendingInit, checkPendingSwitch } from '../session/compaction.js';
 import { renderWindowList, openWindowManager, closeWindowManager, handleGenerateDoc } from './panels/window-manager.js';
 import { loadMcpConfigToJson, renderMcpList, openMcpManager, closeMcpManager, handleMcpSave } from './panels/mcp-manager.js';
 
 import { makeFabDraggable } from './fab.js';
 
-import { pickContinuePrompt } from '../infra/continue-prompt-pool.js';
+import { buildContinueMessage } from '../infra/continue-prompt-pool.js';
 import { getProviderByUrl } from '../providers/registry.js';
 import { createTpsMeter, formatTps } from './tps.js';
 
@@ -268,7 +270,9 @@ async function handleSendSkills() {
  * 「卡住了?点我」按钮：向 AI 发一句继续，催促其接着之前的工作
  */
 async function handleManualParseDispatch() {
-  if (!(await sendToChat(pickContinuePrompt(), '继续', 300))) {
+  // [定制-flash] 用带出口的版本：用户点"我卡住了"时，AI 大概率真的卡住了，
+  // 回一句裸的"接着干"正好把它推回穷举扫描。带出口后缀后它能选"说明卡点"。
+  if (!(await sendToChat(buildContinueMessage(), '继续', 300))) {
     showToast('发送失败：未找到输入框', 3000);
     return;
   }
@@ -486,6 +490,17 @@ function checkAutoCompact() {
  * - 超时（默认 3 分钟）：照常开新对话（不能因更新失败把用户卡死）
  */
 const FLUSH_PROGRESS_TIMEOUT_MS = 300000;
+
+/**
+ * 拼接路径（渲染进程不可用 node:path，统一用正斜杠，Windows 亦可识别）
+ * @param dir 目录
+ * @param name 文件名
+ * @returns 拼接后的路径
+ */
+function joinFsPath(dir: string, name: string): string {
+  return String(dir).replace(/[\\/]+$/, '') + '/' + name;
+}
+
 async function flushProgressThenNewChat(): Promise<void> {
   const projectDir = state.currentProjectDir;
   // 无项目目录：没有进度文件可更新，直接开新对话
@@ -493,7 +508,7 @@ async function flushProgressThenNewChat(): Promise<void> {
     await triggerNewChatWithProgress();
     return;
   }
-  const folder = projectDir + '\\项目进度';
+  const folder = joinFsPath(projectDir, '项目进度');
   // 清除可能残留的"待注入引导"标志：本次归档指令已覆盖其作用，避免 AI 回复后重复注入
   clearPendingProgressGuide();
   try {
@@ -501,13 +516,13 @@ async function flushProgressThenNewChat(): Promise<void> {
     showToast('正在让 AI 更新项目进度文件...', 4000);
     const msg =
       '【自动开启新对话前的进度归档】' + String.fromCharCode(10) +
-      '当前对话即将因上下文过长而开启新对话。请在开启前，务必先更新「项目进度」文件，确保新对话能完美接手：' + String.fromCharCode(10) +
-      '1. **清理已办**：检查 TODO.md，凡是在本对话中已完成的项，必须移到 PROGRESS.md 并打勾，**绝不允许把已完成项留在 TODO.md 中**。' + String.fromCharCode(10) +
-      '2. **盘点挂起**：若有用户要求暂缓/放弃的任务，必须在 TODO.md 中标记为 [已挂起] 并写明原因。' + String.fromCharCode(10) +
-      '3. **更新状态**：TODO.md 中正在做的任务标为 [进行中]，未开始的标为 [待办]。' + String.fromCharCode(10) +
-      '4. **记录交接**：在 交接笔记/ 目录下写一份今天的笔记，写明本次做到了哪、遗留了什么。' + String.fromCharCode(10) +
-      '记录规则详见 ' + folder + '\\AI_CONTEXT.md。' + String.fromCharCode(10) +
-      '**注意：你必须真实调用文件写入工具来更新上述文件。仅仅口头回复“进度已更新”是不合格的，系统会校验文件时间戳。**' + String.fromCharCode(10) +
+      '当前对话即将因上下文过长而开启新对话，新对话只能看到「项目进度/STATUS.md」。请现在按「收尾」规则归档（只改下面这些，别的不用动）：' + String.fromCharCode(10) +
+      '1. **整份覆盖 STATUS.md**（≤ 80 行）：写清 正在做 / 做到哪了 / 下一步（具体到文件或函数）；本对话已完成的待办直接删除；新踩的坑写进「已知的坑」。' + String.fromCharCode(10) +
+      '2. **挂起**：用户要求暂缓/放弃的任务移到 STATUS.md 的「已挂起」并写明原因。' + String.fromCharCode(10) +
+      '3. **LOG.md 追加一行**：- YYYY-MM-DD 本对话完成了什么（不要先读 LOG.md）；有重要选择才往 DECISIONS.md 追加一行。' + String.fromCharCode(10) +
+      '4. 不写交接笔记；总目标没变就不要改 GOAL.md。' + String.fromCharCode(10) +
+      '规则详见 ' + joinFsPath(folder, 'RULES.md') + '（系统提示词里已有「## 项目进度」就不用再读）。' + String.fromCharCode(10) +
+      '**注意：你必须真实调用文件写入工具来更新上述文件，仅仅口头回复“进度已更新”不算完成。**' + String.fromCharCode(10) +
       '真实更新完成后，回复一句"进度已更新"即可。';
 
     let sent = false;
@@ -593,20 +608,349 @@ async function maybeInjectProgressGuide(): Promise<void> {
     const msg =
       '【项目进度文件夹已启用】' + String.fromCharCode(10) +
       '项目目录下已有「项目进度」文件夹：' + folder + String.fromCharCode(10) +
-      '请从本次对话的上下文里判断总目标，并开始维护以下文件（记录规则详见 ' + folder + '\\AI_CONTEXT.md）：' + String.fromCharCode(10) +
-      '- GOAL.md：本次任务的总目标（原始需求/交付物/验收标准/整体进度）' + String.fromCharCode(10) +
-      '- PROGRESS.md：已完成事项（打勾+日期）' + String.fromCharCode(10) +
-      '- TODO.md：待办' + String.fromCharCode(10) +
-      '- DECISIONS.md：重要决策及原因' + String.fromCharCode(10) +
+      '请从本次对话的上下文里判断总目标，并开始维护以下文件（规则详见 ' + joinFsPath(folder, 'RULES.md') + '，请先读一遍）：' + String.fromCharCode(10) +
+      '- GOAL.md：最开始的完整目标（原始需求尽量一字不差 / 交付物 / 验收标准 / 不做什么）' + String.fromCharCode(10) +
+      '- STATUS.md：当前状态（里程碑 / 当前任务 / 下一步 / 待办 / 已知的坑 / 项目速查），完成一项待办就整份覆盖' + String.fromCharCode(10) +
+      '- LOG.md：每完成一项追加一行流水（只写不读）' + String.fromCharCode(10) +
+      '- DECISIONS.md：重要决策，每条一行' + String.fromCharCode(10) +
       '注意：GOAL.md 记的是**最开始那个完整目标**，不要用后续的零散选择/确认去覆盖它；' +
       '方案选择、技术决策请记到 DECISIONS.md。' + String.fromCharCode(10) +
       '若本对话目前还没有明确任务，就先别写，等任务明确了再记录。';
-    await sendToChat(msg, '系统提示词');
+    const ok = await sendToChat(msg, '系统提示词');
+    if (!ok) {
+      // [定制-flash] 修复 P1：投递失败必须把"待注入"标志放回去，
+      // 否则引导永久丢失（旧实现先 clear 再 send，失败只打日志）。
+      setPendingProgressGuide(folder);
+      console.warn('[Cuckoo Code] 注入进度维护引导失败（消息未投递），已恢复待注入标志: ' + folder);
+      return;
+    }
     markGuidedDir(folder); // 记下：该目录已引导过，改阈值保存时不再重复注入
     console.log('[Cuckoo Code] 已注入进度维护引导并标记: ' + folder);
   } catch (err: any) {
-    console.error('[Cuckoo Code] 注入进度维护引导失败:', err && err.message);
+    // 同上：异常时也要恢复标志，避免引导丢失
+    setPendingProgressGuide(folder);
+    console.error('[Cuckoo Code] 注入进度维护引导失败，已恢复待注入标志:', err && err.message);
   }
+}
+
+// ========== [定制-flash] 空闲自动唤醒 ==========
+// 背景：AI 一轮回复结束（任务空闲）后常"卡住等用户"。若空闲超过 N 秒仍无动作，
+// 自动发一条唤醒探针（要求 AI 先输出一行 log 证明 + 继续之前的工作）。
+// 默认只对 chatgpt 生效；连续 3 次唤醒后 AI 仍未继续工作则自动停用，避免刷屏烧钱。
+const AUTO_WAKE_ENABLED_KEY = 'cuckoo-auto-wake-enabled';
+const AUTO_WAKE_PROVIDERS_KEY = 'cuckoo-auto-wake-providers';
+const AUTO_WAKE_DELAY_KEY = 'cuckoo-auto-wake-delay';
+const AUTO_WAKE_MAX_KEY = 'cuckoo-auto-wake-max';
+
+/** 自动唤醒配置（delayMs 已由"秒"换算为毫秒） */
+interface AutoWakeConfig {
+  /** 是否启用（localStorage '0' = 关闭；默认启用） */
+  enabled: boolean;
+  /** 生效平台白名单（provider id，小写；默认仅 chatgpt） */
+  providers: string[];
+  /** 空闲多久后唤醒（毫秒） */
+  delayMs: number;
+  /** 最多连续唤醒次数；-1 = 无限 */
+  maxCount: number;
+}
+
+/** 待触发的唤醒定时器（null = 无） */
+let autoWakeTimer: any = null;
+/** 已成功发出的唤醒次数（用户主动操作后归零） */
+let autoWakeCount = 0;
+/** 连续"无效"唤醒次数（AI 未继续输出 cuckoo 代码块） */
+let autoWakeInvalidCount = 0;
+/** 是否已停止自动唤醒（达上限 / 连续无效） */
+let autoWakeStopped = false;
+/** 安排唤醒时所在的会话 ID：90 秒窗口内切了会话就不该把探针灌到新会话 */
+let autoWakeSessionId: string | null = null;
+
+/**
+ * 读取自动唤醒配置（全部来自 localStorage，渲染进程不碰 node:fs）。
+ * @returns 归一化后的配置；任何异常都退回默认值
+ */
+function readAutoWakeConfig(): AutoWakeConfig {
+  const cfg: AutoWakeConfig = { enabled: true, providers: ['chatgpt'], delayMs: 90000, maxCount: 20 };
+  try {
+    if (localStorage.getItem(AUTO_WAKE_ENABLED_KEY) === '0') cfg.enabled = false;
+  } catch (_) { /* 读不到按默认开启 */ }
+  try {
+    const raw = localStorage.getItem(AUTO_WAKE_PROVIDERS_KEY);
+    if (typeof raw === 'string' && raw.trim()) {
+      const list = raw.split(',').map((s) => s.trim().toLowerCase()).filter((s) => !!s);
+      if (list.length > 0) cfg.providers = list;
+    }
+  } catch (_) { /* 用默认白名单 */ }
+  try {
+    const raw = localStorage.getItem(AUTO_WAKE_DELAY_KEY);
+    // 注意：不能用 "parseInt() || 90"——0 是有效值（虽无意义），会被 || 丢弃
+    if (raw !== null) {
+      const sec = parseInt(raw, 10);
+      if (Number.isFinite(sec) && sec > 0) cfg.delayMs = sec * 1000;
+    }
+  } catch (_) { /* 用默认延迟 */ }
+  try {
+    const raw = localStorage.getItem(AUTO_WAKE_MAX_KEY);
+    if (raw !== null) {
+      const n = parseInt(raw, 10);
+      if (Number.isFinite(n)) cfg.maxCount = n; // -1 = 无限
+    }
+  } catch (_) { /* 用默认上限 */ }
+  return cfg;
+}
+
+/** 当前页面 provider id（小写）；识别不到返回空串 */
+function currentProviderId(): string {
+  try {
+    const p = getProviderByUrl(window.location.href);
+    return p && p.id ? String(p.id).toLowerCase() : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+/** 取消待触发的唤醒（已发出/已计数的不受影响） */
+function cancelAutoWake(): void {
+  if (autoWakeTimer) {
+    clearTimeout(autoWakeTimer);
+    autoWakeTimer = null;
+    console.log('[Cuckoo AutoWake] 已取消待触发的自动唤醒');
+  }
+}
+
+/** 生成 8 位随机 id（小写字母 + 数字），用于探针消息配对 */
+function makeWakeId(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let out = '';
+  for (let i = 0; i < 8; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
+  return out;
+}
+
+/**
+ * 构造唤醒探针消息（复刻参考实现文案）。
+ * @param id 本轮 8 位随机 id
+ * @returns 探针消息文本
+ */
+function buildWakeUpMessage(id: string): string {
+  const nl = String.fromCharCode(10);
+  const fence = String.fromCharCode(96).repeat(3);
+  // [定制-flash] 结构：先判定、再分支（三分支）。
+  // 旧版把「直接接着做」写成全局无条件祈使句放在最前，后面的例外句会被忽略；
+  // 且收尾句「如果你已经完成了所有工作」与"没有任务"是两个不同条件（空项目里
+  // AI 一件活没干，不满足"已完成所有工作"），出口被稀释。
+  // 现改为第 0 步三选一判定，每个终止分支都明确阻断后续阅读。
+  // 第三分支「已陷入技术障碍」来自真实事故：AI 面对压缩混淆代码时无停止出口，
+  // 只能对同一文件做 6 遍结构相同的扫描（58 次 read、同一行连读 4 次）、23 次唤醒不收敛。
+  // 「所有任务已完成」在整条消息中只出现 1 次 —— handleResponseForAutoWake 靠它立即停用。
+  return '【Cuckoo 自动唤醒·' + id + '】' + nl +
+    '你是 Cuckoo 执行者，代码块会被自动执行。' + nl + nl +
+    // [任务范围自检] 事故起点：用户只说"分析"，AI 分析出问题后自己决定"修复"，
+    // 然后卡在压缩代码里穷举扫描。范围约束必须独立于"有没有任务"这个判定。
+    '第 0 步之前先自检：你接下来要做的动作，是否在用户原话要求的范围内？' +
+    '若已超出（例如用户只说"分析"你却要改文件），按【受阻停下】处理并说明需要授权。' + nl + nl +
+    '第 0 步·先判定你当前处于哪种状态：' + nl +
+    '- 没有用户提出的具体任务 → 只回复一行「所有任务已完成」，不要输出任何 cuckoo 代码块，不要去找项目，' +
+    '不要向上级目录或盘符根目录搜索，不要自己给自己派活。到此结束，不要读下面的内容。' + nl +
+    // 门槛与 chat-input.ts、chatgpt.md 保持 AND 语义（三处必须一致，否则模型按最宽松的走）。
+    '- 有任务但已陷入技术障碍（代码压缩混淆无法定位、工具反复截断、缺信息；**且**同一方法已尝试 ≥3 次、' +
+    '连续 3 次无实质进展）→ ' +
+    '不要再调用工具，用纯文本列出：卡点是什么、已试过哪些方法、需要用户提供什么。' +
+    // 【受阻停下】是与「所有任务已完成」同级的**固定协议字面**，状态机靠它立即停用唤醒。
+    // 必须唯一写法、不能有多种变体，否则 handleResponseForAutoWake 匹配不到。
+    '**第一行先输出「【受阻停下】」**，然后再说明卡点。到此结束，不要读下面的内容。' + nl +
+    '- 有任务且仍有可验证的推进空间 → 继续第 1、2 步。' + nl + nl +
+    '第 1 步：输出下面这行证明，证明你没有卡住：' + nl +
+    fence + 'cuckoo' + nl +
+    'log(' + String.fromCharCode(39) + 'WAKE_UP_PROBE:' + id + String.fromCharCode(39) + ');' + nl +
+    fence + nl + nl +
+    // [豁免前缀] 第 2 步原是无条件祈使句，而"到此结束，不要读下面的内容"只是软指令，
+    // 挡不住它已经被读进上下文 —— 必须显式声明本步只在第三分支适用。
+    '第 2 步（**仅当你处于第 0 步第三分支时执行**；若你已输出【受阻停下】，本步不适用）：' +
+    '执行成功后立即继续你之前中断的工作，不要停下来等用户指令，直接接着做；' +
+    '不得用「没有任务」当借口收工（该禁令同样仅限第三分支）。';
+}
+
+/**
+ * 发送一次唤醒探针。
+ * 只有真正投递成功才计数；失败（找不到输入框 / 被取消）不计数，等下次空闲再试。
+ */
+function injectWakeUpProbe(): void {
+  try {
+    const id = makeWakeId();
+    const msg = buildWakeUpMessage(id);
+    console.log('[Cuckoo AutoWake] 发送唤醒探针: ' + id);
+    sendToChat(msg, '自动唤醒').then((ok: boolean) => {
+      try {
+        if (ok) {
+          autoWakeCount++;
+          // 注意：**不要**在这里清 autoWakeInvalidCount。
+          // 无效计数只能由"收到有效回复（含 cuckoo 代码块）"或"AI 宣布完成"清零，
+          // 不能由"发出唤醒"清零 —— 否则时序变成
+          // 「发唤醒→回复无 cuckoo(invalid=1)→再发唤醒(清零)→…」永远停在 1，
+          // "连续 3 次无效自动停"永不触发，AI 做完任务后会被一路唤醒到 maxCount。
+          console.log('[Cuckoo AutoWake] 唤醒已发出（累计 ' + autoWakeCount + ' 次，连续无效 ' + autoWakeInvalidCount + ' 次）');
+        } else {
+          // [定制-flash] P2-3：投递失败时不会有"下一轮回复"，因此也不会再有下一次 onTaskIdle，
+          // 只打日志等于功能静默死亡。这里 30 秒后重新 arm 一次（不计数，符合原语义）。
+          console.log('[Cuckoo AutoWake] 唤醒消息投递失败，30 秒后重试一次（不计数）');
+          setTimeout(() => {
+            try { scheduleAutoWake(); } catch (_) { /* ignore */ }
+          }, 30000);
+        }
+      } catch (err: any) {
+        console.error('[Cuckoo AutoWake] 唤醒计数异常:', err && err.message);
+      }
+    }).catch((err: any) => {
+      console.error('[Cuckoo AutoWake] 唤醒发送异常:', err && err.message);
+    });
+  } catch (err: any) {
+    console.error('[Cuckoo AutoWake] 唤醒探针构造失败:', err && err.message);
+  }
+}
+
+/**
+ * 任务空闲后安排一次自动唤醒。
+ * 跳过条件：未启用 / provider 不在白名单 / 已停止 / 已有待触发定时器。
+ */
+function scheduleAutoWake(): void {
+  try {
+    const cfg = readAutoWakeConfig();
+    if (!cfg.enabled) return;
+    if (autoWakeStopped) return;
+    if (autoWakeTimer) return;
+    const pid = currentProviderId();
+    if (!pid || cfg.providers.indexOf(pid) === -1) return;
+    if (cfg.maxCount >= 0 && autoWakeCount >= cfg.maxCount) {
+      autoWakeStopped = true;
+      showToast('自动唤醒已达上限（' + cfg.maxCount + ' 次），停止唤醒', 4000);
+      return;
+    }
+    // [定制-flash] 记下安排唤醒时所在的会话：定时器到点时若已切会话，不能把探针发到新会话
+    autoWakeSessionId = getCurrentSessionId();
+    autoWakeTimer = setTimeout(() => {
+      autoWakeTimer = null;
+      try {
+        // 到点先复核配置：armed 之后用户关掉开关 / 改了白名单，就不该再补发一次
+        const cur = readAutoWakeConfig();
+        if (!cur.enabled) {
+          console.log('[Cuckoo AutoWake] 到点时开关已关闭，取消本次唤醒');
+          return;
+        }
+        const pidNow = currentProviderId();
+        if (!pidNow || cur.providers.indexOf(pidNow) === -1) {
+          console.log('[Cuckoo AutoWake] 到点时当前平台不在白名单（' + (pidNow || '未知') + '），取消本次唤醒');
+          return;
+        }
+        // 会话校验：任一侧为 null 也视为"会话已变化"——ChatGPT 点「新对话」是 SPA 跳转、
+        // 模块状态不重载、定时器仍在，但 URL 变成首页 → extractSessionId() 返回 null。
+        // 宁可误杀一次（下次 idle 会重新 arm，无副作用），也不要把探针灌进新会话。
+        const sidNow = getCurrentSessionId();
+        if (sidNow !== autoWakeSessionId) {
+          console.log('[Cuckoo AutoWake] 会话已切换（' + (autoWakeSessionId || 'null') + ' → ' + (sidNow || 'null') + '），取消本次唤醒并重置计数');
+          autoWakeCount = 0;
+          autoWakeInvalidCount = 0;
+          autoWakeStopped = false;
+          autoWakeSessionId = null;
+          return;
+        }
+        injectWakeUpProbe();
+      } catch (err: any) {
+        console.error('[Cuckoo AutoWake] 定时器回调异常:', err && err.message);
+      }
+    }, cfg.delayMs);
+    console.log('[Cuckoo AutoWake] 已安排唤醒：' + Math.round(cfg.delayMs / 1000) + ' 秒后（累计已发 ' + autoWakeCount + ' 次）');
+  } catch (err: any) {
+    console.error('[Cuckoo AutoWake] 安排唤醒失败:', err && err.message);
+  }
+}
+
+/**
+ * 判定一轮 AI 回复对自动唤醒是否"有效"：
+ * - AI 明确宣布「所有任务已完成」→ 立即停用（任务做完了还反复唤醒只会烧 token）
+ * - 含 cuckoo 代码块 → AI 在继续干活 → 无效计数清零
+ * - 否则 → 无效计数 +1，连续 3 次则停用自动唤醒
+ * 注意：从未发出过唤醒时不累计无效计数（用户纯聊天场景不应被停用）。
+ * @param text 本轮回复正文
+ */
+function handleResponseForAutoWake(text: string): void {
+  try {
+    cancelAutoWake(); // 无论有效与否，本轮已有回复 → 撤掉待触发的唤醒
+    const t = String(text || '');
+    // 「任务完成」的判据优先于 cuckoo 判定：即使回复里带了收尾代码块也算完成，直接停用。
+    if (t.indexOf('所有任务已完成') !== -1) {
+      autoWakeStopped = true;
+      console.log('[Cuckoo AutoWake] AI 宣布所有任务已完成，停止自动唤醒');
+      return;
+    }
+    // 「受阻停下」与「所有任务已完成」同级：都是**合法停止**，不是"无效轮次"。
+    // 背景：AI 面对压缩/混淆代码时明知卡住，也只能继续穷举扫描 —— 因为没有停止通道。
+    // 这里给它一个被状态机承认的出口。
+    // ⚠️ 位置必须在 `autoWakeCount <= 0` 的 return **之前**：首轮（count=0）也要能停，
+    //    否则 AI 老实说"我卡住了"反而被漏掉、继续被催。
+    if (t.indexOf('【受阻停下】') !== -1) {
+      autoWakeStopped = true;
+      autoWakeInvalidCount = 0; // 受阻是正常停止，不计入"连续无效"
+      console.log('[Cuckoo AutoWake] AI 声明【受阻停下】，停止自动唤醒');
+      // 受阻是在请用户提供东西（未压缩源码 / 权限 / 决策），静默停止会让用户
+      // 以为又卡住了、不知道该轮到谁动作。与下方 invalidCount>=3 的提示方式保持一致。
+      showToast('AI 报告受阻并已停止自动唤醒，请查看它需要什么', 5000);
+      return;
+    }
+    if (autoWakeCount <= 0) return;
+    if (t.indexOf('```cuckoo') !== -1 || t.indexOf('``` cuckoo') !== -1) {
+      autoWakeInvalidCount = 0;
+      return;
+    }
+    autoWakeInvalidCount++;
+    console.log('[Cuckoo AutoWake] 本轮回复未包含 cuckoo 代码块（连续无效 ' + autoWakeInvalidCount + ' 次）');
+    if (autoWakeInvalidCount >= 3) {
+      autoWakeStopped = true;
+      showToast('AI 已连续 3 次未继续工作，已停止自动唤醒', 4000);
+    }
+  } catch (err: any) {
+    console.error('[Cuckoo AutoWake] 有效性判定失败:', err && err.message);
+  }
+}
+
+/**
+ * 读取自动唤醒的运行时状态（仅供诊断/单测；不改变任何行为）。
+ * @returns 当前计数快照（hasTimer 表示是否有待触发的唤醒定时器）
+ */
+function getAutoWakeState(): { count: number; invalidCount: number; stopped: boolean; hasTimer: boolean } {
+  return {
+    count: autoWakeCount,
+    invalidCount: autoWakeInvalidCount,
+    stopped: autoWakeStopped,
+    hasTimer: !!autoWakeTimer,
+  };
+}
+
+/**
+ * 用户主动操作页面（点击/敲键）→ 视为"用户回来了"：
+ * 重置停用状态与连续计数，让自动唤醒在用户离开后能重新生效。
+ * 注册在 bindEvents 内（eventsBound 保证只注册一次）。
+ */
+function handleUserActivityForAutoWake(): void {
+  try {
+    // [定制-flash] P0-1：框架自己发消息时，站点模拟点击/回车经主进程 sendInputEvent
+    // 注入，产生的是 isTrusted=true 的真实 DOM 事件，必然命中本监听。
+    // 不加这道守卫，每次工具结果回传/唤醒探针/归档指令都会把计数清零，
+    // 导致"连续 3 次无效停用"和 maxCount 上限永不触发。
+    if (isFrameworkDriving()) return; // 框架自己模拟的点击/回车，不算"用户回来了"
+    if (!autoWakeStopped && autoWakeInvalidCount === 0 && autoWakeCount === 0) return;
+    autoWakeStopped = false;
+    autoWakeInvalidCount = 0;
+    autoWakeCount = 0;
+    console.log('[Cuckoo AutoWake] 检测到用户操作，已重置自动唤醒计数与停用状态');
+  } catch (_) { /* ignore */ }
+}
+
+/** 注册用户活跃监听（只加一次，由 eventsBound 保证） */
+function registerAutoWakeUserActivity(): void {
+  try {
+    document.addEventListener('keydown', handleUserActivityForAutoWake, true);
+    document.addEventListener('mousedown', handleUserActivityForAutoWake, true);
+  } catch (_) { /* 非浏览器环境忽略 */ }
 }
 
 /**
@@ -626,11 +970,15 @@ function startTokenCounter() {
       if (sid) saveTokenForSession(sid, tokens);
     }
     updateConversationTokenDisplay();
+    // [定制-flash] 自动唤醒有效性判定（含 cuckoo 代码块 = AI 在继续干活）
+    try { handleResponseForAutoWake(_text || ''); } catch (_) { /* 不影响 token 统计 */ }
   });
   // 任务空闲（工具循环结束）：先唤醒等待器，再注入"待处理的进度引导"，最后检查自动压缩
   hooks.onTaskIdle?.(() => {
     resolveTaskIdleWaiters();
-    
+    // [定制-flash] 新一轮空闲：先撤掉上一次尚未触发的唤醒，避免叠加发两条
+    cancelAutoWake();
+
     // 判断本次空闲是否会触发“自动开启新对话”的归档
     const mode = readContextMode();
     const thresholdTokens = autoCompactThresholdWan * 10000;
@@ -641,6 +989,13 @@ function startTokenCounter() {
       checkAutoCompact();
     } else {
       maybeInjectProgressGuide().finally(() => checkAutoCompact());
+    }
+
+    // [定制-flash] 空闲自动唤醒：即将归档开新对话时不调度（避免和归档指令抢输入框）
+    if (!willNewChat) {
+      try { scheduleAutoWake(); } catch (err: any) {
+        console.error('[Cuckoo AutoWake] 空闲调度异常:', err && err.message);
+      }
     }
   });
   updateConversationTokenDisplay();
@@ -667,6 +1022,9 @@ function bindEvents() {
   // 防止重复绑定（SPA 导航或 preload 重载时可能导致多次执行）
   if (eventsBound) return;
   eventsBound = true;
+
+  // [定制-flash] 用户主动操作页面即视为"用户回来了"：重置自动唤醒的停用与计数
+  registerAutoWakeUserActivity();
 
 
 
@@ -947,3 +1305,14 @@ function triggerCompaction(): void {
 }
 
 export { bindEvents, wireEvents, refreshTokenForCurrentSession, setIsSubagentWindow, getAutoCompactConfig, applyAutoCompactConfig, triggerCompaction };
+// [定制-flash] 自动唤醒（导出便于单测 / 其他面板复用）
+export {
+  readAutoWakeConfig,
+  scheduleAutoWake,
+  cancelAutoWake,
+  buildWakeUpMessage,
+  handleResponseForAutoWake,
+  injectWakeUpProbe,
+  getAutoWakeState,
+  handleUserActivityForAutoWake,
+};

@@ -108,7 +108,7 @@ export function TokenPage() {
             await ckAlert(
               (d.progressCreated ? '已创建「项目进度」文件夹：\n' : '「项目进度」文件夹已存在：\n') +
               d.progressFolder +
-              '\n\n等你发布任务后，AI 会自动把总目标写进 GOAL.md，并持续更新 PROGRESS.md / TODO.md 等进度文件。',
+              '\n\n等你发布任务后，AI 会自动把总目标写进 GOAL.md，并在每完成一项时更新 STATUS.md（新对话会自动注入它，无需再读）。',
               '自动开启新对话已启用'
             );
           } else if (d.progressHint) {

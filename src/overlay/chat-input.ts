@@ -18,6 +18,95 @@ function getCurrentProvider(): any {
   return getProviderByUrl(window.location.href);
 }
 
+// ========== [定制-flash] 「框架正在驱动页面」时间窗 ==========
+// 实现抽到 src/infra/framework-driving.ts（叶子模块）：
+// 既避免 chat-input → providers/registry → providers/chatgpt → chat-input 的循环依赖，
+// 也便于 provider（如 chatgpt 的多轮点击重试）逐轮续期。
+import { markFrameworkDriving } from '../infra/framework-driving.js';
+
+/**
+ * 生成随机等待时间（ms），范围由 state 配置（默认 10-20 秒）
+ */
+
+// ========== [定制-flash] 本轮执行提醒 ==========
+// 背景：ChatGPT 等平台上 AI 执行完一段工具脚本后常"停下来等用户"。
+// 做法：每轮把工具结果回传时，在末尾附一段固定纪律提醒（不随机，便于测试断言）。
+// 默认只对 chatgpt 生效，其他平台可通过 localStorage 打开。
+
+/** 提醒生效的平台白名单键（逗号分隔，默认仅 chatgpt） */
+const ROUND_REMINDER_PROVIDERS_KEY = 'cuckoo-round-reminder-providers';
+/** 提醒总开关键（'0' = 关闭；默认开启） */
+const ROUND_REMINDER_ENABLED_KEY = 'cuckoo-round-reminder-enabled';
+
+/**
+ * 读取提醒生效的平台白名单。
+ * @returns provider id 数组（已 trim + 小写）；localStorage 缺省或为空时为 ['chatgpt']
+ */
+function readRoundReminderProviders(): string[] {
+  let raw = 'chatgpt';
+  try {
+    const v = localStorage.getItem(ROUND_REMINDER_PROVIDERS_KEY);
+    if (typeof v === 'string' && v.trim()) raw = v;
+  } catch (_) { /* localStorage 不可用时用默认值 */ }
+  const list = raw.split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => !!s);
+  return list.length > 0 ? list : ['chatgpt'];
+}
+
+/**
+ * 本轮是否应追加执行提醒。
+ * 规则：开关未关（非 '0'）且当前 provider 在白名单内。
+ * @returns 是否追加
+ */
+function shouldApplyRoundReminder(): boolean {
+  try {
+    if (localStorage.getItem(ROUND_REMINDER_ENABLED_KEY) === '0') return false;
+  } catch (_) { /* 读不到则按默认开启处理 */ }
+  const provider = getCurrentProvider();
+  const id = provider && provider.id ? String(provider.id).toLowerCase() : '';
+  if (!id) return false;
+  return readRoundReminderProviders().indexOf(id) !== -1;
+}
+
+/**
+ * 构造本轮执行提醒文案（固定文案，不做随机）。
+ * @returns 提醒文本（多行）
+ */
+function buildRoundReminder(): string {
+  const nl = String.fromCharCode(10);
+  const fence = String.fromCharCode(96).repeat(3);
+  return '【Cuckoo 本轮执行提醒】依据刚才的真实执行结果继续当前任务：' + nl +
+    '- 未完成（且用户已提出具体任务）：直接输出独立的 cuckoo 代码块（以 ' + fence + 'cuckoo 开头）执行下一个可验证动作，' +
+    '不要只写计划、口头承诺或等待用户；' + nl +
+    '- 失败：分析错误、修正后重试；' + nl +
+    '- 完成一项待办时（项目有「项目进度」文件夹）：整份覆盖 STATUS.md、往 LOG.md 追加一行（并入本来要执行的代码块，不要为此单独多开一轮）；' + nl +
+    // [任务范围] 事故起点：用户只说"分析"，AI 分析出"摇杆没实现"后自己把目标升级成"修复摇杆"，
+    // 然后为找输入模块对压缩文件穷举扫描。范围约束必须独立成条 —— 不能绑在
+    // 「用户本轮尚未提出任何具体任务」条件下：事故里用户**明确给了**任务，那个条件不生效。
+    '- 任务范围：只做用户明确要求的事。用户说"分析/看下/说明"时给结论即可，不要自动升级成"修复/修改"；' +
+    '发现问题写成「位置 + 建议改法 + 风险」，等用户确认再动手；' + nl +
+    '- 停止条件有三个：① 完成判据全部满足；②「用户本轮尚未提出任何具体任务」（见下条）；' +
+    // [门槛统一] 三处文案（本处 / events.ts 探针 / chatgpt.md「受阻也要停」）必须同为 AND 语义。
+    // 早期本处用顿号平列（= 或）：只要命中"代码被压缩无法定位"一条就够停，3 次门槛形同虚设。
+    // 而本提醒每轮注入、recency 最高，模型会按最宽松的那份执行 —— 所以必须显式写「且」。
+    '③ 遇到无法突破的技术障碍，**且**同一方法已连续 3 次无实质进展（典型形态：目标代码被压缩/混淆无法定位、' +
+    '工具反复读取被截断、缺少必要信息或权限）。停下前必须逐条列出这 3 次分别做了什么、观察到什么、' +
+    '为什么算同一方法、为什么没有推进；**不足 3 条不许停，若还存在你尚未尝试的明显路径也不许停**，' +
+    '不得把"预判会失败"算作一次尝试。第 ③ 种情况应停止调用工具，用纯文本说明卡点、已试方法与所需信息，' +
+    // [协议字面] 停下的**第一行**必须输出该字面：handleResponseForAutoWake 靠它立即停用唤醒。
+    // 只在探针里要求是不够的 —— 走提醒路径停下、或平台不在 auto-wake 白名单时，
+    // AI 停了但状态机认不到，会白烧 1~3 轮唤醒。
+    '**第一行先输出「【受阻停下】」**；不要继续穷举扫描或做猜测性修改——' +
+    '这是"受阻停下"，不属于"等待用户"；' +
+    '只要用户提出过任务且未完成、且不属于第 ③ 种情况，一律继续输出 cuckoo 代码块，' +
+    '即使要输出【进度】汇报，汇报之后若任务未完成，也必须继续输出 cuckoo 代码块，不得停在汇报上。' + nl +
+    '- 但若用户本轮尚未提出任何具体任务（例如刚初始化项目、或你已交付且无待办），' +
+    '只需简述现状并等待用户指令，不要自行向上级目录/盘符根目录/其它路径搜索项目，' +
+    '也不要自己给自己指派任务；' + nl +
+    '不得虚构执行结果。';
+}
+
 /**
  * 生成随机等待时间（ms），范围由 state 配置（默认 10-20 秒）
  */
@@ -161,6 +250,8 @@ const SYSTEM_MSG_TAGS = [
   'JS汇总', '飞书', '看门狗', '重试', '重试(操作频繁)',
   '压缩-摘要', 'MCP信息', '技能与代理清单', '继续',
   'JSON工具调用提示', 'XML工具调用提示', '系统提示词',
+  // [定制-flash] 空闲自动唤醒的探针消息，属框架内部消息（不算用户消息）
+  '自动唤醒',
 ];
 let onUserMessageSentCb: ((text: string, tag?: string) => void) | null = null;
 /** 注册"用户消息已发出"回调（返回取消注册） */
@@ -354,6 +445,15 @@ async function sendCombinedJsResultsToChat(results: any, onSent?: () => void): P
 
   // provider 可自定义回传格式（某些平台对格式敏感，如触发风控）
   msg = applyResultTransform(msg, getCurrentProvider());
+
+  // [定制-flash] 本轮执行提醒：只对白名单平台（默认 chatgpt）追加，防止 AI 停下等用户
+  try {
+    if (shouldApplyRoundReminder()) {
+      msg += sep + sep + buildRoundReminder();
+    }
+  } catch (err: any) {
+    console.warn('[Cuckoo Code] 追加本轮执行提醒失败（忽略）:', err && err.message);
+  }
 
   // 追加（不覆盖）：保留用户已输入的内容，工具结果拼在其后一起发送
   const input = findInputArea();
@@ -593,6 +693,9 @@ async function insertSnippet(content: string, autoSend?: boolean): Promise<boole
  * 触发发送消息
  */
 function triggerSend(input: any): void {
+  // [定制-flash] 发消息前先打开"框架驱动中"时间窗：随后站点模拟点击/回车产生的是
+  // isTrusted=true 的真实事件，不能让它被当成"用户回来了"（会自动唤醒计数被误清零）。
+  markFrameworkDriving();
   const provider = getCurrentProvider();
 
   // [261031-x7k9p2] 记录 send 事件
@@ -687,6 +790,12 @@ export {
   sendMessageToChat,
   applyResultTransform,
   sendCombinedJsResultsToChat,
+  // [定制-flash] 本轮执行提醒（导出便于单测）
+  readRoundReminderProviders,
+  shouldApplyRoundReminder,
+  buildRoundReminder,
+  // [定制-flash] 框架驱动中时间窗（mark 在 triggerSend 首行调用；is 转出便于单测）
+  markFrameworkDriving,
   cancelPendingSend,
   takePendingSendText,
   getLastToolResultText,
@@ -697,3 +806,6 @@ export {
   triggerSend,
   registerIpcListeners,
 };
+
+// [定制-flash] 时间窗判定/清场从叶子模块转出，保持既有 `chat.isFrameworkDriving()` 调用方/单测可用
+export { isFrameworkDriving, resetFrameworkDriving } from '../infra/framework-driving.js';
