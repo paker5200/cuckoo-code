@@ -1040,23 +1040,3 @@ export function pickContinuePrompt(): string {
   const picked = pool[Math.floor(Math.random() * pool.length)];
   return picked || DEFAULT_CONTINUE_PROMPTS[0];
 }
-
-/**
- * 手动/自动"继续"提示词：带**双出口**后缀，避免在空项目或受阻场景上反复催干。
- *
- * 与 pickContinuePrompt 的区别仅在于拼了一个条件后缀 —— 池子本身 1000 条不动。
- * 使用者：请求失败自动重试（retry.ts）、用户点「卡住了?点我」（events.ts）。
- * 看门狗（watchdog.ts）与 observer 不能用它：它们在你正在生成/格式纠正时触发，
- * 带出口会让 AI 提前收工（已记为待办，本轮刻意不动）。
- *
- * 两个出口分别对应状态机的两个合法停止字面：
- *   - 没有任务    → 「所有任务已完成」
- *   - 已陷入障碍  → 「【受阻停下】」
- *
- * @returns 继续文案 + 双出口后缀
- */
-export function buildContinueMessage(): string {
-  return pickContinuePrompt() +
-    '（若你手头没有用户提出的具体任务，只回复「所有任务已完成」；' +
-    '若已陷入技术障碍，按【受阻停下】格式说明卡点。两种情况都不要去找项目、不要向上级目录搜索）';
-}

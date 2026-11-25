@@ -3,8 +3,6 @@
  * 基于 chatgpt.com 页面结构，输入框为 ProseMirror（contenteditable）。
  */
 import { CHATGPT_HOOK } from './generated/hook-sources.js';
-// [定制-flash] 框架驱动时间窗：多轮点击/回车重试期间逐轮续期（叶子模块，无循环依赖）
-import { markFrameworkDriving } from '../infra/framework-driving.js';
 
 const chatgpt = {
   id: 'chatgpt',
@@ -120,9 +118,6 @@ const chatgpt = {
     //    故必须「等按钮就绪 + 多方式兜底 + 长重试」，不能一次失败就放弃。
     const canSim = api && typeof api.simulateMouse === 'function';
     for (let attempt = 0; attempt < 10; attempt++) {
-      // [定制-flash] 逐轮续期：每轮约 600ms，10 轮最坏 6~6.5 秒，单靠 triggerSend 入口的
-      // 5 秒窗口覆盖不到最后一击；这里贴着每次真实注入事件续 2 秒（mark 只延长不缩短）。
-      markFrameworkDriving(2000);
       const curInput = findInput() || input;
       const btn = this.findSendButton ? this.findSendButton() : null;
       // A) 有按钮 → 真实鼠标点击
@@ -158,12 +153,7 @@ const chatgpt = {
 
     // 最后兜底：DOM click
     const btn2 = this.findSendButton ? this.findSendButton() : null;
-    if (btn2) {
-      // [定制-flash] 兜底 DOM click 同样会派发事件，续期一次
-      markFrameworkDriving(2000);
-      (btn2 as any).click();
-      return true;
-    }
+    if (btn2) { (btn2 as any).click(); return true; }
     return false;
   },
 

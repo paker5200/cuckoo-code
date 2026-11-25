@@ -252,9 +252,7 @@ function buildPrompt(opts: { providerId: string; selectedDir: string; isCompacti
 
   // 压缩后初始化：末尾追加提示，让 AI 接着之前的工作继续
   if (isCompaction) {
-    // [定制-flash] 这句在系统提示词最末尾，recency 上会压过 chatgpt.md 的
-    // 「空白项目与访问边界」，故必须自带"无任务"出口，否则空项目场景又被催着找活。
-    combined += '\n\n---\n\n请继续你之前的工作（若用户尚未提出任何具体任务，或 TODO 中已无待办，则如实说明当前为空/已全部完成并等待指令，不要去找项目、不要向上级目录或盘符根目录搜索）';
+    combined += '\n\n---\n\n请继续你之前的工作';
   }
 
   return { prompt: combined };

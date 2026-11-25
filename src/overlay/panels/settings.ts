@@ -60,13 +60,6 @@ interface SettingsData {
   aiInterceptPatterns: string;
   /** [261101-ym9l98] 「让 AI 继续」统一池（一行一条；空 = 使用内置默认） */
   continuePrompt: string;
-  // [定制-flash] 持续执行相关开关
-  /** 每轮执行提醒（让 AI 自动继续；对应 cuckoo-round-reminder-enabled，默认开启） */
-  autoReminderEnabled: boolean;
-  /** 空闲自动唤醒（对应 cuckoo-auto-wake-enabled，默认开启） */
-  autoWakeEnabled: boolean;
-  /** 唤醒延迟（秒，对应 cuckoo-auto-wake-delay，默认 90） */
-  autoWakeDelay: number;
   // [261101-ym9l98] 工具结果回传文案两个池（空 = 回退 js-result-phrases.ts 的内置默认）
   /** 工具结果回复语池（一行一条，{n} 替换为脚本数；空 = 使用内置默认） */
   jsResultPhrases: string;
@@ -144,10 +137,6 @@ function getSettingsData(): SettingsData {
     aiInterceptPatterns: lsGet('cuckoo-ai-intercept-patterns') || DEFAULT_AI_INTERCEPT_PATTERNS,
     // [261101-ym9l98] 统一「继续」池：未自定义时展示内置全文（首次副本呈现）
     continuePrompt: getSharedSetting(CONTINUE_PROMPT_KEY) ?? DEFAULT_CONTINUE_PROMPTS.join('\n'),
-    // [定制-flash] 持续执行开关：只有显式 '0' 才算关闭（缺省 = 开启）
-    autoReminderEnabled: lsGet('cuckoo-round-reminder-enabled') !== '0',
-    autoWakeEnabled: lsGet('cuckoo-auto-wake-enabled') !== '0',
-    autoWakeDelay: int(lsGet('cuckoo-auto-wake-delay'), 90),
     // [261101-ym9l98] 两个池存在主进程（所有窗口共享），未自定义时展示内置全文
     jsResultPhrases: getSharedSetting(JS_RESULT_PHRASES_KEY) ?? DEFAULT_JS_RESULT_PHRASES.join('\n'),
     jsResultItemTemplates: migrateItemTemplates(getSharedSetting(JS_RESULT_ITEM_TEMPLATES_KEY) ?? null),
@@ -209,15 +198,6 @@ async function applySettingsData(data: any): Promise<{ success: boolean; error?:
     }
   }
 
-  // [定制-flash] 唤醒延迟（秒）：仅在显式提供时校验，缺失时保留原值
-  let autoWakeDelay: number | null = null;
-  if (data && data.autoWakeDelay !== undefined && data.autoWakeDelay !== null && data.autoWakeDelay !== '') {
-    autoWakeDelay = parseInt(data.autoWakeDelay, 10);
-    if (!Number.isFinite(autoWakeDelay) || autoWakeDelay <= 0) {
-      return { success: false, error: '唤醒延迟必须是正整数（秒）' };
-    }
-  }
-
   try {
     localStorage.setItem('cuckoo-retry-enabled', (data && data.retryEnabled) ? '1' : '0');
     localStorage.setItem('cuckoo-retry-delay-min', String(dmin));
@@ -236,16 +216,6 @@ async function applySettingsData(data: any): Promise<{ success: boolean; error?:
     if (data && data.ssrfGuard !== undefined) localStorage.setItem('cuckoo-ssrf-guard', data.ssrfGuard ? '1' : '0');
     // AI 回复拦截规则：只写非空字段（保留空列表的语义——空 = 不拦截）
     if (data && data.aiInterceptPatterns !== undefined) localStorage.setItem('cuckoo-ai-intercept-patterns', String(data.aiInterceptPatterns || ''));
-    // [定制-flash] 持续执行开关：仅当显式提供时才写（缺省不动，避免把用户的关闭状态冲掉）
-    if (data && data.autoReminderEnabled !== undefined) {
-      localStorage.setItem('cuckoo-round-reminder-enabled', data.autoReminderEnabled ? '1' : '0');
-    }
-    if (data && data.autoWakeEnabled !== undefined) {
-      localStorage.setItem('cuckoo-auto-wake-enabled', data.autoWakeEnabled ? '1' : '0');
-    }
-    if (autoWakeDelay !== null) {
-      localStorage.setItem('cuckoo-auto-wake-delay', String(autoWakeDelay));
-    }
   } catch (err: any) {
     return { success: false, error: '写入失败: ' + err.message };
   }
@@ -301,8 +271,6 @@ async function resetSettingsData(): Promise<SettingsData> {
     'cuckoo-attach-delay-min', 'cuckoo-attach-delay-max',
     'cuckoo-goal-max-iterations', 'cuckoo-ssrf-guard',
     'cuckoo-ai-intercept-patterns', 'cuckoo-ai-intercept-prompt',
-    // [定制-flash] 持续执行开关（清掉即回到默认：两项开启、延迟 90 秒）
-    'cuckoo-round-reminder-enabled', 'cuckoo-auto-wake-enabled', 'cuckoo-auto-wake-delay',
   ];
   try { for (const k of KEYS) localStorage.removeItem(k); } catch (_) {}
   state.sendDelayMin = 10000;
