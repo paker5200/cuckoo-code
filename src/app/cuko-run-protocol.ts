@@ -1,0 +1,159 @@
+/**
+ * [261109-8ms69z-cuko-api] Cuko 运行协议（纯函数，主进程与测试共用）
+ * 此文件属于 Cuko API 独立工作窗口需求，详细设计见：
+ * docs/requirements/261109-8ms69z-cuko-api.md
+ *
+ * 抽出来的原因：运行循环放主进程后，SSE 解析 / 代码块提取 / 提示词分段
+ * 都需要脱离 React 与 Electron 单独测试。
+ */
+
+/**
+ * 解析围栏行（``` 之后的部分）的语言标记。
+ * 只取第一个 token：模型经常把围栏写成 ```cuckoo id="58216"（带属性）或
+ * ```cuckoo,js，整行 lowercase 后会变成 "cuckoo id=..."，导致块被漏掉。
+ */
+export function parseFenceLang(line: string): string {
+  const rest = String(line || '').trim().replace(/^`+/, '').trim();
+  if (!rest) return '';
+  return rest.split(/[\s,;=]+/)[0].toLowerCase();
+}
+
+/** 语言标记是否表示 cuckoo 工具脚本（cuckoo / cuckoo-js / cuckoo_js …） */
+export function isCuckooLang(lang: string): boolean {
+  return lang === 'cuckoo' || lang.startsWith('cuckoo-') || lang.startsWith('cuckoo_');
+}
+
+const FENCE = '```';
+
+/**
+ * 从 AI 回复中提取 ```cuckoo 代码块。
+ *
+ * 兼容模型常见的两种写法：
+ *  1) 围栏独占一行（标准 Markdown）；
+ *  2) 围栏挤在正文末尾（`…说明文字。```cuckoo id="x"`），
+ *     此时整行 trim 后不以围栏开头，按行首匹配会整块漏掉。
+ * 所以这里按「围栏可以在行内任意位置出现」扫描，围栏外的前缀文字不影响识别。
+ */
+export function extractCuckooBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  if (!text) return blocks;
+  const lines = String(text).replace(/\r\n?/g, '\n').split('\n');
+  let inBlock = false;
+  let lang = '';
+  let buf: string[] = [];
+  for (const line of lines) {
+    // 行内第一个围栏的位置；找不到就是纯正文行
+    const idx = line.indexOf(FENCE);
+    if (idx < 0) {
+      if (inBlock) buf.push(line);
+      continue;
+    }
+    // 围栏前的文字：块内属于正文（罕见），块外直接丢弃
+    if (inBlock && idx > 0) buf.push(line.slice(0, idx));
+    const fenceLine = line.slice(idx);
+    if (!inBlock) {
+      // 开围栏：语言标记之后的 info 内容（如 id="x"）一律丢弃，不当作代码
+      inBlock = true;
+      lang = parseFenceLang(fenceLine);
+      buf = [];
+    } else {
+      inBlock = false;
+      const code = buf.join('\n').trim();
+      if (code && isCuckooLang(lang)) blocks.push(code);
+      buf = [];
+      lang = '';
+    }
+  }
+  return blocks;
+}
+
+
+/** 从代码块里提取所有被调用的工具名（去重） */
+export function extractToolNames(code: string): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const re = /await\s+([a-zA-Z_$][\w$]*)\s*\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(code)) !== null) {
+    const name = m[1];
+    if (!seen.has(name)) { seen.add(name); names.push(name); }
+  }
+  return names;
+}
+
+const ERROR_MESSAGES: Record<string, string> = {
+  authentication_required: '需要登录，请先在浏览器中打开并登录对应 AI 服务。',
+  provider_unavailable: 'Provider 不可用，请检查服务端和浏览器扩展是否正常运行。',
+  rate_limit_exceeded: '请求过于频繁，请稍后再试。',
+  invalid_request: '请求参数不合法。',
+  request_timeout: '请求超时，请重试。',
+  internal_error: 'Provider 内部错误，请稍后重试。',
+};
+
+/** 把 Provider 的错误码翻成人话（未知码保留原文） */
+export function friendlyError(code: string, message: string): string {
+  const friendly = ERROR_MESSAGES[code];
+  return friendly ? friendly + (message ? '（' + message + '）' : '') : (message || code);
+}
+
+/** 按 Markdown 一级标题（行首 "# "）把完整提示词切分成段 */
+export function splitPromptByH1(prompt: string): string[] {
+  if (!prompt) return [];
+  const lines = prompt.split('\n');
+  const segments: string[] = [];
+  let current: string[] = [];
+  for (const line of lines) {
+    if (/^# /.test(line)) {
+      const text = current.join('\n').trim();
+      if (text) segments.push(text);
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  const tail = current.join('\n').trim();
+  if (tail) segments.push(tail);
+  return segments;
+}
+
+export interface SseDecoder {
+  /** 喂一段文本，凑满 `\n\n` 就回调一条事件 */
+  push(chunk: string): void;
+  /** [261123-q4h7tn-cuko-openai] 流结束时调用一次：处理最后一帧后面没有空行的情况 */
+  flush(): void;
+}
+
+/**
+ * 解析 Provider 的 SSE 流。
+ * 只处理 `event:` / `data:` 两种行，空行分隔事件；同一事件的多个 data 行用换行拼接。
+ * CRLF 被拆在两个 chunk 里到达（\r 与 \n 分开）也能归一。
+ */
+export function createSseDecoder(onEvent: (eventName: string, data: string) => void): SseDecoder {
+  let buffer = '';
+  const dispatch = (raw: string) => {
+    let eventName = 'message';
+    const dataLines: string[] = [];
+    for (const line of raw.split('\n')) {
+      if (line.startsWith('event:')) eventName = line.slice(6).trim();
+      else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+    }
+    if (dataLines.length) onEvent(eventName, dataLines.join('\n'));
+  };
+  return {
+    push(chunk: string) {
+      if (!chunk) return;
+      buffer = (buffer + chunk).replace(/\r\n/g, '\n');
+      let idx: number;
+      while ((idx = buffer.indexOf('\n\n')) >= 0) {
+        const raw = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        dispatch(raw);
+      }
+    },
+    flush() {
+      const rest = buffer;
+      buffer = '';
+      if (rest.trim()) dispatch(rest);
+    },
+  };
+}

@@ -3,7 +3,7 @@ import type { ToolApiMeta } from '../core/Tool.js';
 import { ToolResult } from '../core/ToolResult.js';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { streamRipgrep } from './ripgrep-stream.js';
 import {
   GLOB_FOOTER_FULL_KEY, GLOB_FOOTER_TRUNCATED_KEY,
   DEFAULT_GLOB_FOOTER_FULL, DEFAULT_GLOB_FOOTER_TRUNCATED,
@@ -17,43 +17,19 @@ export const apiMetas: ToolApiMeta[] = [
     order: 5,
     category: '搜索',
     name: 'glob',
-    usage: '使用 glob 工具（而不是 shell find）按路径模式查找文件。不含 "/" 的模式匹配任意深度的 basename，所以 "*" 匹配树中所有文件而非仅顶层。结果只包含文件，永不包含目录，且包含隐藏和已忽略文件。默认排除 node_modules、dist 等产物目录；若确需搜索这些目录，请显式传 path。',
     doc: [
-      '按 glob 模式查找文件路径，返回纯文本路径列表（以 / 分隔，如 "src/utils/a.js"）。',
-      '使用 ripgrep，包含隐藏文件和已忽略文件；未指定 path 时默认排除 VCS 元数据目录（.git 等）与常见产物目录（node_modules、dist、out、build 等）。',
-      'glob 语法：* 匹配单层内任意字符，** 匹配任意层级目录，? 匹配单个字符。',
-      '结果包含 footer：未超限时"(共找到 N 个文件)"，超限时说明只列出了前 M 个。',
+      '按 glob 模式查找文件路径（* 单层、** 任意层级、? 单字符），返回 / 分隔的纯文本列表。',
+      '只返回文件，含隐藏/忽略文件，默认排除 node_modules、dist 等；不含 "/" 的模式匹配任意深度 basename。用 glob 而不是 shell find。',
     ].join('\n'),
     params: 'pattern: string, searchPath?: string',
     returns: 'Promise<string>',
-    paramDocs: {
-      pattern: 'glob 匹配模式，如 src 下所有 .js / .ts，或 *.json',
-      searchPath: '搜索起始目录（相对路径），默认项目根目录',
-    },
-    throws: 'pattern 为空、搜索目录不存在或不是目录时抛出异常',
   },
 ];
 
-// @vscode/ripgrep 是 ES Module，CommonJS 里不能用 require() 同步加载；
-// 改为惰性动态 import()，只在首次执行 ripgrep 时解析一次。
-let rgPathPromise: Promise<string> | null = null;
-function getRgPath(): Promise<string> {
-  if (!rgPathPromise) {
-    rgPathPromise = import('@vscode/ripgrep').then(m => {
-      // 打包后 @vscode/ripgrep 返回的路径在 app.asar 内，Windows 无法 spawn；
-      // 通过 asarUnpack 解包到 app.asar.unpacked，这里做路径替换。
-      let p = m.rgPath;
-      if (p && p.includes('app.asar' + path.sep)) {
-        p = p.replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep);
-      }
-      return p;
-    });
-  }
-  return rgPathPromise;
-}
-
 // 对齐 dsh GLOB_MAX_RESULTS
 const MAX_RESULTS = 100;
+// 字节兜底：防止极端情况下读完整棵目录树
+const GLOB_MAX_STREAM_BYTES = 32 * 1024 * 1024;
 
 // 对齐 dsh GLOB_VCS_EXCLUDES：ripgrep 不得进入的 VCS 元数据目录
 const GLOB_VCS_EXCLUDES = ['.git', '.svn', '.hg', '.bzr', '.jj', '.sl'];
@@ -109,32 +85,6 @@ function buildGlobArgs(input: { pattern: string; path?: string }): string[] {
   }
   if (input.path !== undefined) parts.push('--', input.path);
   return parts;
-}
-
-/**
- * 执行 ripgrep，返回 stdout 字符串。
- */
-async function runRipgrep(args: string[], cwd: string): Promise<{ stdout: string; stderr: string; code: number | null }> {
-  const rgPath = await getRgPath();
-  return new Promise((resolve, reject) => {
-    const child = spawn(rgPath, args, {
-      cwd,
-      windowsHide: true,
-    });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d: Buffer) => { stdout += d; });
-    child.stderr.on('data', (d: Buffer) => { stderr += d; });
-    child.on('error', reject);
-    child.on('close', code => {
-      // code 0 表示成功，code 1 表示无匹配
-      if (code === 0 || code === 1) {
-        resolve({ stdout, stderr, code });
-      } else {
-        reject(new Error(stderr.trim() || ('ripgrep exited with code ' + code)));
-      }
-    });
-  });
 }
 
 /**
@@ -249,28 +199,46 @@ class GlobToolNew extends Tool {
       }
 
       const args = buildGlobArgs(input);
-      const { stdout } = await runRipgrep(args, baseDir);
+
+      // 流式读取：每行一个路径，攒够 MAX_RESULTS 就停（--files 输出无上限，
+      // 宽泛 pattern + 大仓库时同样可能把主进程撑爆）
+      const collected: string[] = [];
+      let run;
+      try {
+        run = await streamRipgrep({
+          args,
+          cwd: baseDir,
+          maxBytes: GLOB_MAX_STREAM_BYTES,
+          onLine: (line) => {
+            const p = line.replace(/\r$/, '').replace(/\\/g, '/').replace(/^\.\//, '');
+            if (p.length === 0) return true;
+            collected.push(p);
+            return collected.length < MAX_RESULTS;
+          },
+        });
+      } catch (err: any) {
+        return ToolResult.error('Glob 搜索失败: ' + err.message);
+      }
+
+      if (!run.stopped && run.code !== 0 && run.code !== 1) {
+        return ToolResult.error('Glob 搜索失败: ' + (run.stderr.trim() || ('ripgrep exited with code ' + run.code)));
+      }
 
       // 未指定 path 时，检查哪些被忽略的产物目录"真实存在"——提醒 AI 别误判"文件不存在"
       const ignoreNote = input.path ? '' : buildIgnoreNote(baseDir);
 
-      // 解析路径并按字母序排序（保持 cuckoo 现状）
-      const allResults = stdout
-        .split(/\r?\n/)
-        .map((p: string) => p.replace(/\\/g, '/').replace(/^\.\//, ''))
-        .filter((p: string) => p.length > 0)
-        .sort((a: string, b: string) => a.localeCompare(b));
+      // 按字母序排序（保持 cuckoo 现状）。流式攒的是「rg 输出序」的前 N 个，
+      // 与全量的前 N 个可能不同——截断场景本就是模糊的，排序只为可读性。
+      const items = collected.slice().sort((a: string, b: string) => a.localeCompare(b));
+      const truncated = run.stopped || collected.length >= MAX_RESULTS;
 
-      const truncated = allResults.length > MAX_RESULTS;
-      const items = truncated ? allResults.slice(0, MAX_RESULTS) : allResults;
-
-      console.log('[GlobTool] 搜索完成: pattern=' + input.pattern + ', baseDir=' + baseDir + ', 匹配 ' + allResults.length + ' 个文件');
+      console.log('[GlobTool] 搜索完成: pattern=' + input.pattern + ', baseDir=' + baseDir + ', 保留 ' + items.length + ' 个文件' + (truncated ? '（已截断）' : ''));
 
       if (items.length === 0) {
         return ToolResult.success('No files found' + (ignoreNote ? '\n\n' + ignoreNote : ''));
       }
 
-      const out = formatGlobOutput(items, allResults.length, truncated);
+      const out = formatGlobOutput(items, items.length, truncated);
       return ToolResult.success(ignoreNote ? out + '\n\n' + ignoreNote : out);
     } catch (err: any) {
       return ToolResult.error('Glob 搜索失败: ' + err.message);

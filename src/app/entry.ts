@@ -3,6 +3,7 @@
  * 由项目根目录 main.js 薄壳加载。
  */
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as windowState from './window.js';
@@ -18,7 +19,38 @@ import * as mcpClient from '../mcp/client.js';
 import { resolveAsset, resolveSrc } from '../infra/paths.js';
 
 const require = createRequire(import.meta.url);
-const { app, BrowserWindow, WebContentsView, Menu, dialog, screen, nativeTheme, ipcMain: ipcMainForProfile } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, dialog, screen, session, nativeTheme, ipcMain: ipcMainForProfile } = require('electron');
+
+// ========== 控制台管道兜底（EPIPE） ==========
+// 用 npm start 启动时，主进程 stdout/stderr 是 start.js 接的管道。启动器窗口被关掉后管道读端消失，
+// 之后写控制台就会 EPIPE: broken pipe，被 Electron 当成未捕获异常弹窗打断使用。
+// 两种失败形态都要兜：异步写失败是 emit 'error'，而 Windows 上 stdout 指向管道时是同步写、
+// 写失败会**同步抛错**（堆栈落在 console.log 上），所以还要把 console 方法包一层。
+for (const stream of [process.stdout, process.stderr]) {
+  if (stream) stream.on('error', () => { /* 异步写失败：吞掉，日志不是关键路径 */ });
+}
+{
+  const isBrokenPipe = (err: any): boolean => {
+    const code = err && err.code;
+    return code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED';
+  };
+  const methods = ['log', 'info', 'warn', 'error', 'debug', 'trace'];
+  const target: any = console;
+  for (const method of methods) {
+    const original = target[method];
+    if (typeof original !== 'function') continue;
+    target[method] = function (...args: any[]) {
+      try {
+        original.apply(console, args);
+      } catch (err: any) {
+        // 管道已断：日志写不出去只能放弃，绝不能让整个应用崩掉
+        if (isBrokenPipe(err)) return;
+        // 其它错误也不该打断业务；尽量留一条可诊断信息（写不出去就算了）
+        try { process.stderr.write('[console] 输出失败: ' + String((err && err.message) || err) + String.fromCharCode(10)); } catch (_) { /* ignore */ }
+      }
+    };
+  }
+}
 
 // ========== 持久化会话配置 ==========
 const SESSION_DIR = process.env.CUCKOO_SESSION_DIR || 'cuckoo-code-flash-session';
@@ -1133,7 +1165,94 @@ ipcMainForProfile.handle('rate-limit-hit', async (event: any) => {
 });
 
 // ========== IPC 处理器 ==========
+
 registerIpcHandlers();
+
+// ========== Cuko API 独立工作窗口 ==========
+let cukoWindow: any = null;
+
+function openCukoWindow(options?: { focus?: boolean }): void {
+  const shouldFocus = options?.focus !== false;
+  if (cukoWindow && !cukoWindow.isDestroyed()) {
+    if (cukoWindow.isMinimized()) cukoWindow.restore();
+    if (!cukoWindow.isVisible()) cukoWindow.showInactive();
+    if (shouldFocus) {
+      cukoWindow.show();
+      cukoWindow.focus();
+    }
+    return;
+  }
+
+  const pagePath = resolveSrc('ui/cuko/built.html');
+  const allowedUrl = pathToFileURL(pagePath).href;
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 900,
+    minWidth: 760,
+    minHeight: 560,
+    title: 'Cuckoo Code - Cuko API',
+    show: false,
+    webPreferences: {
+      preload: path.join(import.meta.dirname, 'cuko-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      session: session.fromPartition('cuko-api'),
+    },
+  });
+
+  cukoWindow = win;
+
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', (event: any, url: string) => {
+    if (url !== allowedUrl) event.preventDefault();
+  });
+  win.webContents.on('will-redirect', (event: any, url: string) => {
+    if (url !== allowedUrl) event.preventDefault();
+  });
+
+  win.on('closed', () => {
+    if (cukoWindow === win) cukoWindow = null;
+  });
+
+  // 启动自动打开时用 showInactive，避免抢走主窗口焦点
+  win.once('ready-to-show', () => {
+    if (win.isDestroyed()) return;
+    if (shouldFocus) {
+      win.show();
+      win.focus();
+    } else {
+      win.showInactive();
+    }
+  });
+
+  win.loadFile(pagePath).catch((err: any) => {
+    console.error('[Cuko API] 页面加载失败:', err?.message || err);
+  });
+}
+
+ipcMainForProfile.handle('shell-open-cuko-window', (event: any) => {
+  const ctx = windowState.getContextByWebContents(event.sender);
+  if (
+    !ctx ||
+    !ctx.win ||
+    ctx.win.isDestroyed() ||
+    ctx.win.webContents !== event.sender ||
+    ctx.isSubagent ||
+    (event.senderFrame && event.sender.mainFrame && event.senderFrame !== event.sender.mainFrame)
+  ) {
+    return { success: false, error: 'Unauthorized sender' };
+  }
+
+  try {
+    openCukoWindow();
+    return { success: true };
+  } catch (err: any) {
+    console.error('[Cuko API] 窗口创建失败:', err?.message || err);
+    return { success: false, error: 'Failed to open Cuko API window' };
+  }
+});
+
 
 // ========== 飞书同步（若已配置启用则自动连接）==========
 try { initFeishu(); } catch (err: any) { console.error('[Feishu] 初始化失败:', err.message); }
@@ -1424,6 +1543,17 @@ if (!gotSingleInstanceLock) {
 
   app.whenReady().then(() => {
     setupAppMenu();
+    // [261123-q4h7tn-cuko-openai] 把库里已有的明文 API 密钥迁移成密文。
+    // 幂等：已加密的跳过；系统加密不可用（如 Linux 无密钥环）时整批跳过并告警，不静默降级。
+    import('./secrets.js').then((m: any) => {
+      m.migratePlaintextSecrets(globalDb)
+        .then((r: any) => {
+          if (r.skipped) {
+            console.warn('[secrets] 系统加密不可用，已跳过明文密钥迁移（密钥仍是明文存储）');
+          }
+        })
+        .catch((e: any) => console.error('[secrets] 迁移明文密钥失败:', (e && e.message) || e));
+    }).catch(() => {});
     // MCP 配置首次迁移（旧 userData/mcp.json → ~/.cuckoo/mcp.json，旧文件保留）
     try { mcpConfig.migrateLegacy(); } catch (_) { /* ignore */ }
     // 加载已启用的 Cuckoo 插件（DSH 兼容；注册其工具到全局工具表）
@@ -1454,6 +1584,16 @@ if (!gotSingleInstanceLock) {
     } else {
       createWindow(null);
     }
+
+    // 启动时自动打开 Cuko API 工作窗口（与主窗口并行，不抢焦点）
+    // 需要关闭时把下面的调用去掉即可
+    setTimeout(() => {
+      try {
+        openCukoWindow({ focus: false });
+      } catch (err: any) {
+        console.error('[Cuko API] 自动打开失败:', err?.message || err);
+      }
+    }, 800);
 
     });
 }

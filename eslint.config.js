@@ -33,7 +33,8 @@ const COMMON_GLOBALS = {
 
 export default [
   {
-    ignores: ['node_modules/**', 'dist/**', 'dist-verify/**', 'out/**', 'build/**', 'wyp/**', 'coverage/**', '**/*.d.ts', 'src/ui/vendor/**', 'custom-providers/**'],
+    // [chore] ignores 末尾几项是 git 已忽略的本地目录（临时文件、插件自带的压缩库等），不参与 lint
+    ignores: ['node_modules/**', 'dist/**', 'dist-verify/**', 'out/**', 'build/**', 'wyp/**', 'coverage/**', '**/*.d.ts', 'src/ui/vendor/**', 'custom-providers/**', '.cuckoo/plugins/**', 'resources/runtime/**', 'tmp/**'],
   },
   js.configs.recommended,
   {
@@ -70,5 +71,19 @@ export default [
     // ESLint 规则文件自身用 ESM/CJS 混合，跳过部分检查
     files: ['eslint-rules/**/*.js'],
     rules: { 'no-unused-vars': 'off' },
+  },
+  {
+    // .cjs 是 CommonJS 脚本（scripts/ 下的运维脚本），offset 不在 '**/*.js' 之内，
+    // 这里单独给 Node 全局，否则 process / console 会报 no-undef。
+    files: ['**/*.cjs'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'commonjs',
+      globals: COMMON_GLOBALS,
+    },
+    rules: {
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-empty': ['error', { allowEmptyCatch: true }],
+    },
   },
 ];

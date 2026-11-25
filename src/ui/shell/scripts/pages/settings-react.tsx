@@ -7,12 +7,14 @@
  * - 底部：恢复默认（保存改为自动：改动后 500ms 防抖保存）
  * - 关闭：右上 ✕ / ESC / 点遮罩
  */
-import { createElement, useState, useEffect, useCallback, useRef } from 'react';
+import { createElement, Component, useState, useEffect, useCallback, useRef } from 'react';
 import { api, ckAlert, ckConfirm } from '../shared.js';
 import { useSlot, specLabel, renderPluginElement } from '../use-slot.js';
 import { SlotErrorBoundary } from '../components/slot-error-boundary.js';
+import { useHideAiView } from '../use-hide-ai-view.js';
 import { Select } from '../components/select.js';
 import { SettingRow } from '../components/setting-row.js';
+import { CukoSettings, CukoPromptSettings } from './settings-cuko.js';
 import { DEFAULT_JS_RESULT_PHRASES, DEFAULT_JS_RESULT_ITEM_TEMPLATES } from '../../../../overlay/js-result-phrases.js';
 import { DEFAULT_CONTINUE_PROMPTS } from '../../../../infra/continue-prompt-pool.js';
 import {
@@ -26,6 +28,23 @@ import * as echarts from 'echarts';
 const SETTINGS_SLOT = 'settings.section';
 
 const THEME_BUILTINS: [string, string][] = [['system', '跟随系统'], ['light', '浅色'], ['dark', '深色']];
+
+/** 设置内容区错误边界：单个分类渲染崩溃不影响整个设置面板（左导航仍可用） */
+class SettingsErrorBoundary extends Component<{ children?: any }, { err: string | null }> {
+  constructor(props: any) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(e: any) { return { err: (e && e.message) ? e.message : String(e) }; }
+  componentDidCatch(e: any) { console.error('[settings] 分类渲染崩溃', e); }
+  render() {
+    if (this.state.err) {
+      return createElement('div', { style: { padding: '20px', color: 'var(--ck-danger)', fontSize: '13px', lineHeight: 1.6 } },
+        createElement('div', { style: { fontWeight: 600, marginBottom: '8px' } }, '此分类渲染出错'),
+        createElement('div', null, this.state.err),
+        createElement('div', { style: { marginTop: '12px', color: 'var(--ck-text-2)', fontSize: '12px' } }, '可切换到其他分类继续操作，或重启应用。'),
+      );
+    }
+    return (this as any).props.children;
+  }
+}
 
 function RefreshIcon() {
   return createElement('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' },
@@ -51,6 +70,7 @@ function ToggleRow({ label, desc, checked, onChange }: { label: string; desc?: s
 function UsageStats() {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInst = useRef<any>(null);
+  const reqIdRef = useRef(0);
   const [granularity, setGranularity] = useState<'day'|'hour'|'minute'>('day');
   const [loading, setLoading] = useState(false);
   const [profiles, setProfiles] = useState<any[]>([]);
@@ -83,22 +103,70 @@ function UsageStats() {
 
   const loadData = useCallback(async (g: 'day'|'hour'|'minute', pId: string, sTime: string, eTime: string) => {
     if (!api.getUsageStats) return;
+    const reqId = ++reqIdRef.current;
     setLoading(true);
     try {
       const startStr = sTime.replace('T', ' ') + ':00';
       const endStr = eTime.replace('T', ' ') + ':59';
 
       const res = await api.getUsageStats({ granularity: g, startTime: startStr, endTime: endStr, profileId: pId || null });
-      if (res && res.success && chartInst.current) {
-        const data = res.data || [];
-        const xData = data.map((d: any) => {
+      // 竞态保护：只认最后一次请求的响应，过期响应直接丢弃
+      if (reqId !== reqIdRef.current) return;
+      if (!chartInst.current) return;
+      if (!res || !res.success) {
+        chartInst.current.clear(); // 查询失败也清空，避免残留旧数据
+        return;
+      }
+      if (res.success) {
+        const rawData = res.data || [];
+        // 前端补齐缺失的时间段，避免 category 轴把稀疏数据挤在一起
+        const startMs = new Date(startStr.replace(/-/g, '/')).getTime(); // 兼容各平台
+        const endMs = new Date(endStr.replace(/-/g, '/')).getTime();
+        let stepMs = 86400000;
+        if (g === 'hour') stepMs = 3600000;
+        else if (g === 'minute') stepMs = 60000;
+
+        const dataMap = new Map();
+        rawData.forEach((d: any) => dataMap.set(d.time_label, d));
+
+        const fullData: any[] = [];
+        const pad = (n: number) => String(n).padStart(2, '0');
+        let count = 0;
+        const MAX_POINTS = 15000; // 防卡死，最多 1.5 万个点
+
+        for (let t = startMs; t <= endMs && count < MAX_POINTS; t += stepMs) {
+          count++;
+          const d = new Date(t);
+          let label = '';
+          if (g === 'day') {
+            label = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+          } else if (g === 'hour') {
+            label = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}`;
+          } else {
+            label = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+          }
+          const row = dataMap.get(label) || { send_count: 0, reply_count: 0, diff_token: 0 };
+          fullData.push({
+            time_label: label,
+            send_count: row.send_count || 0,
+            reply_count: row.reply_count || 0,
+            diff_token: row.diff_token || 0
+          });
+        }
+
+        if (fullData.length === 0) {
+          chartInst.current.clear();
+          return;
+        }
+
+        const xData = fullData.map((d: any) => {
           if (g === 'day') return d.time_label.slice(5); // MM-DD
-          if (g === 'hour') return d.time_label.slice(11) + ':00'; // HH:00
-          return d.time_label.slice(11, 16); // HH:mm
+          if (g === 'hour') return d.time_label.slice(5) + ':00'; // MM-DD HH:00
+          return d.time_label.slice(5); // MM-DD HH:mm
         });
-        const sendData = data.map((d: any) => d.send_count);
-        const replyData = data.map((d: any) => d.reply_count);
-        const tokenData = data.map((d: any) => d.diff_token);
+        const sendData = fullData.map((d: any) => d.send_count);
+        const replyData = fullData.map((d: any) => d.reply_count);
+        const tokenData = fullData.map((d: any) => d.diff_token);
 
         const cs = getComputedStyle(document.documentElement);
         const textColor = cs.getPropertyValue('--ck-text').trim() || '#333';
@@ -120,7 +188,7 @@ function UsageStats() {
             right: 10
           },
           grid: { left: '3%', right: '4%', bottom: '3%', top: '40px', containLabel: true },
-          xAxis: { type: 'category', data: xData, axisLabel: { color: dimColor } },
+          xAxis: { type: 'category', data: xData, axisLabel: { color: dimColor, hideOverlap: true } },
           yAxis: [
             { type: 'value', axisLabel: { color: dimColor }, splitLine: { lineStyle: { color: borderColor } } },
             { type: 'value', axisLabel: { color: dimColor }, splitLine: { show: false } }
@@ -132,18 +200,17 @@ function UsageStats() {
           ]
         });
       }
-    } catch (_) { /* ignore */ } finally {
-      setLoading(false);
+    } catch (_) {
+      if (reqId === reqIdRef.current) chartInst.current?.clear();
+    } finally {
+      if (reqId === reqIdRef.current) setLoading(false);
     }
   }, []);
 
+  // 图表生命周期：只在挂载/卸载时初始化与销毁（不在筛选变化时重建）
   useEffect(() => {
     if (!chartRef.current) return;
-    if (!chartInst.current) {
-      chartInst.current = echarts.init(chartRef.current);
-    }
-    loadData(granularity, selectedProfile, startTime, endTime);
-    
+    chartInst.current = echarts.init(chartRef.current);
     const handleResize = () => chartInst.current?.resize();
     window.addEventListener('resize', handleResize);
     return () => {
@@ -151,6 +218,11 @@ function UsageStats() {
       chartInst.current?.dispose();
       chartInst.current = null;
     };
+  }, []);
+
+  // 数据加载：筛选条件变化时重新查询
+  useEffect(() => {
+    loadData(granularity, selectedProfile, startTime, endTime);
   }, [granularity, selectedProfile, startTime, endTime, loadData]);
 
   return createElement('div', { className: 'ck-card', style: { height: '500px', display: 'flex', flexDirection: 'column' } },
@@ -185,12 +257,12 @@ function UsageStats() {
 
 /** 设置全屏模态 */
 export function SettingsModal({ onClose }: { onClose: () => void }) {
-  // 显隐由外层 shell-frame 统一接管，避免重复调用造成竞态
+  useHideAiView();
 
   const [data, setData] = useState<any>(null);
   const [themes, setThemes] = useState<[string, string][]>(THEME_BUILTINS);
   const [theme, setTheme] = useState('system');
-  const [active, setActive] = useState('appearance');
+  const [active, setActive] = useState((window as any).cukoAPI ? 'cuko-api' : 'appearance');
 
   const pluginSections = useSlot(SETTINGS_SLOT);
 
@@ -212,11 +284,20 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const promptLoadedRef = useRef(false);
 
   const load = useCallback(async () => {
-    if (!api.getSettings) return;
+    if (!api.getSettings) { setData({}); return; }
     try {
       const r = await api.getSettings();
-      if (r && r.success && r.data) { dirtyRef.current = false; setData(r.data); }
-    } catch (_) { /* ignore */ }
+      if (r && r.success && r.data) { 
+        dirtyRef.current = false; 
+        setData(r.data); 
+      } else { 
+        console.error('获取设置失败:', r?.error);
+        setData({}); 
+      }
+    } catch (err: any) { 
+      console.error('获取设置异常:', err);
+      setData({}); 
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -633,20 +714,25 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     ),
   );
 
+  const isCuko = !!(window as any).cukoAPI;
   const NAV: [string, string][] = [
+    ['cuko-api', 'Cuko API'], // 针对 Cuko 独立窗口的模型配置
+    ['cuko-prompt', '系统提示词'], // Cuko 专属：只改 cuko.md 对应模板，不选 provider
     ['appearance', '外观'],
-    ['system-prompt', '系统提示词'],  // [261105-uw877b]
-    ['retry', '失败自动重试'],
-    ['send', '发送延迟'],
-    ['attach', '附件上传间隔'],
-    ['security', '网络安全'],
-    ['ai-intercept', 'AI 回复拦截'],
-    ['js-result-phrases', '工具结果回复语'],
-    ['read-header', '文件读取格式'],
-    ['glob-footer', '文件搜索格式'],
-    ['write-footer', '文件写入格式'],
-    ['logs', '日志'],
-    ['usage', '用量统计'],
+    ['security', '网络安全'], // Cuko 窗口也需要这个
+    ...(isCuko ? [] : [
+      ['system-prompt', '系统提示词'],  // [261105-uw877b]
+      ['retry', '失败自动重试'],
+      ['send', '发送延迟'],
+      ['attach', '附件上传间隔'],
+      ['ai-intercept', 'AI 回复拦截'],
+      ['js-result-phrases', '工具结果回复语'],   // [261101-ym9l98]
+      ['read-header', '文件读取格式'],          // [261101-ym9l98]
+      ['glob-footer', '文件搜索格式'],          // [261101-ym9l98]
+      ['write-footer', '文件写入格式'],         // [261101-ym9l98]
+      ['logs', '日志'],
+      ['usage', '用量统计'],
+    ] as [string, string][])
   ];
 
   // 当前分类标题（右侧内容区顶部显示）
@@ -660,7 +746,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   }
 
   let content: any = null;
-  if (loading) content = createElement('div', { className: 'ck-list-empty' }, '加载中…');
+  if (loading && active !== 'cuko-api') content = createElement('div', { className: 'ck-list-empty' }, '加载中…');
+  else if (active === 'cuko-api') content = createElement(CukoSettings);
+  else if (active === 'cuko-prompt') content = createElement(CukoPromptSettings);
   else if (active === 'appearance') content = appearance;
   else if (active === 'system-prompt') content = systemPrompt;
   else if (active === 'retry') content = createElement('div', null, retry, continuePrompt);
@@ -688,16 +776,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     }
   }
 
-  return createElement('div', { 
-    className: 'ck-settings-mask', 
-    style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' },
-    onClick: (e: any) => { if (e.target === e.currentTarget) onClose(); } 
-  },
-    createElement('div', { 
-      className: 'ck-settings-dialog', 
-      style: { width: '1000px', maxWidth: '92vw', height: '720px', maxHeight: '88vh', display: 'flex', flexDirection: 'column', background: 'var(--ck-bg, #fff)', borderRadius: '12px', boxShadow: '0 12px 48px rgba(0,0,0,0.35)', border: '1px solid var(--ck-border, #ccc)', overflow: 'hidden', position: 'relative', zIndex: 100000 },
-      onClick: (e: any) => e.stopPropagation() 
-    },
+  // 外层遮罩（点遮罩关闭）+ 内层居中对话框
+  return createElement('div', { className: 'ck-settings-mask', onClick: (e: any) => { if (e.target === e.currentTarget) onClose(); } },
+    createElement('div', { className: 'ck-settings-dialog', onClick: (e: any) => e.stopPropagation() },
       // 顶栏（只有关闭按钮）
       createElement('div', { className: 'ck-settings-head' },
         createElement('div', { style: { flex: 1 } }),
@@ -726,7 +807,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         ),
         createElement('div', { className: 'ck-set-content' },
           pageTitle ? createElement('div', { className: 'ck-set-page-title' }, pageTitle) : null,
-          content,
+          createElement(SettingsErrorBoundary, { key: active }, content),
         ),
       ),
       // 顶栏下方显示"已保存"提示（自动保存状态）

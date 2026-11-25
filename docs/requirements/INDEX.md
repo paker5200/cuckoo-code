@@ -40,5 +40,7 @@
 | 261105-uaovrd | fix | [UA 与客户端提示（sec-ch-ua）不一致修正（改走 CDP override）](./261105-uaovrd-ua-client-hints.md) | review | feat/261105-geaofb-deepseek-clipboard-paste | 2026-11-05 |
 | 261105-uw877b | feature | [系统提示词模板可编辑（按平台，存 SQLite）](./261105-uw877b-editable-system-prompt.md) | review | feat/261105-geaofb-deepseek-clipboard-paste | 2026-11-05 |
 | 261108-sse2 | fix | [适配 DeepSeek 新版 SSE 流（命名事件 + 正文提取为 0）](./261108-sse2-deepseek-sse-v2.md) | doing | fix/261108-sse-stream-v2 | 2026-11-08 |
+| 261109-8ms69z-cuko-api | feature | [Cuko API 客户端与独立工作窗口](./261109-8ms69z-cuko-api.md) | done | feat/261109-8ms69z-cuko-api | 2026-11-17 |
+| 261123-q4h7tn-cuko-openai | feature | [Cuko 接入 OpenAI 兼容接口（Chat Completions）](./261123-q4h7tn-cuko-openai.md) | review | feat/261123-q4h7tn-cuko-openai | 2026-11-24 |
 
-共 35 个需求。
+共 37 个需求。
